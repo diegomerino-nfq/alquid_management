@@ -7,12 +7,21 @@ interface FileInputProps {
   onFileLoaded: (content: string, fileName: string) => void;
   onRemove?: () => void;
   required?: boolean;
+  initialFileName?: string | null;
 }
 
-const FileInput: React.FC<FileInputProps> = ({ label, accept, onFileLoaded, onRemove, required }) => {
-  const [fileName, setFileName] = useState<string | null>(null);
+const FileInput: React.FC<FileInputProps> = ({ label, accept, onFileLoaded, onRemove, required, initialFileName }) => {
+  const [fileName, setFileName] = useState<string | null>(initialFileName || null);
   const [error, setError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (initialFileName) {
+      setFileName(initialFileName);
+    } else {
+      setFileName(null);
+    }
+  }, [initialFileName]);
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];

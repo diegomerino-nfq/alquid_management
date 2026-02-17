@@ -12,6 +12,7 @@
           extend: {
             fontFamily: {
               sans: ['Inter', 'sans-serif'],
+              mono: ['Fira Code', 'Menlo', 'Monaco', 'Courier New', 'monospace'],
             },
             colors: {
               alquid: {
@@ -29,6 +30,22 @@
         font-family: 'Inter', sans-serif;
         background-color: #F9FAFB;
       }
+      /* Custom scrollbar for code editor */
+      .code-editor-container textarea {
+        outline: none;
+      }
+      code[class*="language-"], pre[class*="language-"] {
+        font-family: 'Fira Code', 'Menlo', 'Monaco', 'Courier New', monospace;
+        font-size: 14px;
+        line-height: 1.5;
+        direction: ltr;
+        text-align: left;
+        white-space: pre;
+        word-spacing: normal;
+        word-break: normal;
+        tab-size: 4;
+        hyphens: none;
+      }
     </style>
   <script type="importmap">
 {
@@ -38,7 +55,8 @@
     "react/": "https://esm.sh/react@^19.2.4/",
     "lucide-react": "https://esm.sh/lucide-react@^0.574.0",
     "jszip": "https://esm.sh/jszip@^3.10.1",
-    "react-router-dom": "https://esm.sh/react-router-dom@^7.13.0"
+    "react-router-dom": "https://esm.sh/react-router-dom@^7.13.0",
+    "react-simple-code-editor": "https://esm.sh/react-simple-code-editor@0.13.1"
   }
 }
 </script>

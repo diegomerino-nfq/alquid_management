@@ -5,19 +5,22 @@ import HomePage from './pages/HomePage';
 import ReportDownloader from './pages/ReportDownloader';
 import SqlExtractor from './pages/SqlExtractor';
 import JsonEditor from './pages/JsonEditor';
+import { GlobalStateProvider } from './context/GlobalStateContext';
 
 const App: React.FC = () => {
   return (
-    <HashRouter>
-      <Layout>
-        <Routes>
-          <Route path="/" element={<HomePage />} />
-          <Route path="/download" element={<ReportDownloader />} />
-          <Route path="/extract" element={<SqlExtractor />} />
-          <Route path="/editor" element={<JsonEditor />} />
-        </Routes>
-      </Layout>
-    </HashRouter>
+    <GlobalStateProvider>
+      <HashRouter>
+        <Layout>
+          <Routes>
+            <Route path="/" element={<HomePage />} />
+            <Route path="/download" element={<ReportDownloader />} />
+            <Route path="/extract" element={<SqlExtractor />} />
+            <Route path="/editor" element={<JsonEditor />} />
+          </Routes>
+        </Layout>
+      </HashRouter>
+    </GlobalStateProvider>
   );
 };
 

@@ -1,13 +1,21 @@
 import React, { useState, useMemo } from 'react';
-import { Play, Settings, Database, ChevronLeft, Sliders, CheckSquare, Square, Filter, AlertTriangle, CheckCircle2, XCircle } from 'lucide-react';
+import { Play, Settings, Database, ChevronLeft, Sliders, CheckSquare, Square, Filter, CheckCircle2, XCircle } from 'lucide-react';
 import FileInput from '../components/FileInput';
 import PageHeader from '../components/PageHeader';
-import { ReportDefinition, QueryDefinition, EXPECTED_DATABASES } from '../types';
+import { QueryDefinition, EXPECTED_DATABASES } from '../types';
 import { prepareFinalSql } from '../utils/sqlFormatter';
+import { useGlobalState } from '../context/GlobalStateContext';
 
 const ReportDownloader: React.FC = () => {
-  const [reportData, setReportData] = useState<ReportDefinition[]>([]);
-  const [configData, setConfigData] = useState<any>(null);
+  // Use Global State (Downloader Specific)
+  const { 
+    downloadReports, setDownloadReports, clearDownloadReports,
+    downloadConfig, setDownloadConfig, clearDownloadConfig,
+    downloadRegion, setDownloadRegion,
+    downloadEnv, setDownloadEnv,
+    downloadLoadId, setDownloadLoadId
+  } = useGlobalState();
+
   const [selectedQueries, setSelectedQueries] = useState<Set<string>>(new Set());
   
   // Configuration UI State
@@ -16,40 +24,36 @@ const ReportDownloader: React.FC = () => {
   // Sorted options
   const regions = ["Argentina", "Colombia", "España", "New York", "Perú", "Suiza"].sort();
   const environments = ["PRE", "PRO"].sort();
-
-  const [region, setRegion] = useState("");
-  const [env, setEnv] = useState("");
-  const [loadId, setLoadId] = useState("");
   
   const [isProcessing, setIsProcessing] = useState(false);
   const [progress, setProgress] = useState(0);
   const [logs, setLogs] = useState<string[]>([]);
 
-  const handleQueriesLoaded = (content: string) => {
+  const handleQueriesLoaded = (content: string, fileName: string) => {
     try {
       const json = JSON.parse(content);
-      setReportData(json);
+      setDownloadReports(json, fileName);
     } catch (e) {
       alert("JSON de queries inválido");
     }
   };
 
-  const handleConfigLoaded = (content: string) => {
+  const handleConfigLoaded = (content: string, fileName: string) => {
     try {
       const json = JSON.parse(content);
-      setConfigData(json);
+      setDownloadConfig(json, fileName);
     } catch (e) {
       alert("JSON de configuración inválido");
     }
   };
 
   const handleRemoveQueries = () => {
-    setReportData([]);
+    clearDownloadReports();
     setSelectedQueries(new Set());
   };
 
   const handleRemoveConfig = () => {
-    setConfigData(null);
+    clearDownloadConfig();
   };
 
   const toggleQuery = (id: string) => {
@@ -64,21 +68,21 @@ const ReportDownloader: React.FC = () => {
       setSelectedQueries(new Set());
     } else {
       const allIds = new Set<string>();
-      reportData.forEach(r => r.queries.forEach(q => allIds.add(`${r.report}|${q.filename}`)));
+      downloadReports.data.forEach(r => r.queries.forEach(q => allIds.add(`${r.report}|${q.filename}`)));
       setSelectedQueries(allIds);
     }
   };
 
   const getTotalQueries = () => {
-    return reportData.reduce((acc, r) => acc + r.queries.length, 0);
+    return downloadReports.data.reduce((acc, r) => acc + r.queries.length, 0);
   };
 
-  // Validation Logic - Purely based on Rules, independent of Access File
+  // Validation Logic - Purely based on Rules
   const validateQuery = (query: QueryDefinition) => {
     const errors: string[] = [];
     
     // 0. Pre-check: Region/Env selected?
-    if (!region || !env) {
+    if (!downloadRegion || !downloadEnv) {
       return { valid: false, msg: "Seleccione Región y Entorno" };
     }
 
@@ -90,24 +94,18 @@ const ReportDownloader: React.FC = () => {
     }
     
     // 2. Database Validation (Strict check against EXPECTED_DATABASES)
-    const allowedDbs = EXPECTED_DATABASES[region]?.[env];
+    const allowedDbs = EXPECTED_DATABASES[downloadRegion]?.[downloadEnv];
     
     if (allowedDbs) {
       if (!allowedDbs.includes(query.database)) {
-          // Format allowed DBs for display
-          const allowedStr = allowedDbs.length > 2 
-            ? allowedDbs.slice(0, 2).join(", ") + "..." 
-            : allowedDbs.join(" o ");
-          
           if (allowedDbs.length === 0) {
-             errors.push(`No hay bases de datos permitidas configuradas para ${region} ${env}.`);
+             errors.push(`No hay bases de datos permitidas configuradas para ${downloadRegion} ${downloadEnv}.`);
           } else {
-             errors.push(`BD '${query.database}' no válida para ${region} ${env}.`);
+             errors.push(`BD '${query.database}' no válida para ${downloadRegion} ${downloadEnv}.`);
           }
       }
     } else {
-       // Should not happen if regions map matches keys
-       errors.push(`Configuración no encontrada para ${region} ${env}.`);
+       errors.push(`Configuración no encontrada para ${downloadRegion} ${downloadEnv}.`);
     }
 
     if (errors.length > 0) {
@@ -118,13 +116,17 @@ const ReportDownloader: React.FC = () => {
   };
 
   const runDownload = async () => {
-    if (selectedQueries.size === 0 || !configData) {
+    if (selectedQueries.size === 0 || !downloadConfig.data) {
       alert("Por favor carga los archivos y selecciona queries.");
       return;
     }
-    if (!region || !env) {
+    if (!downloadRegion || !downloadEnv) {
       alert("Por favor selecciona región y entorno.");
       return;
+    }
+    if (!downloadLoadId.trim()) {
+        alert("El LOAD ID es obligatorio para la descarga de informes.");
+        return;
     }
 
     setIsProcessing(true);
@@ -132,7 +134,7 @@ const ReportDownloader: React.FC = () => {
     setLogs([]);
 
     const queriesToRun: { report: string, query: QueryDefinition }[] = [];
-    reportData.forEach(r => {
+    downloadReports.data.forEach(r => {
       r.queries.forEach(q => {
         if (selectedQueries.has(`${r.report}|${q.filename}`)) {
           queriesToRun.push({ report: r.report, query: q });
@@ -157,7 +159,7 @@ const ReportDownloader: React.FC = () => {
       setLogs(prev => [`[${new Date().toLocaleTimeString()}] Iniciando: ${item.query.filename}...`, ...prev]);
       
       try {
-        const finalSql = prepareFinalSql(item.query, loadId);
+        const finalSql = prepareFinalSql(item.query, downloadLoadId);
         if (!finalSql) throw new Error("Error generando SQL");
         await new Promise(r => setTimeout(r, 800)); 
         
@@ -190,7 +192,7 @@ const ReportDownloader: React.FC = () => {
   // Flatten data for table view
   const flatData = useMemo(() => {
     const items: { id: string, report: string, folder: string, filenameOnly: string, query: QueryDefinition }[] = [];
-    reportData.forEach(r => {
+    downloadReports.data.forEach(r => {
       r.queries.forEach(q => {
         const parts = q.filename.split('/');
         const folder = parts.length > 1 ? parts[0] : '';
@@ -206,7 +208,7 @@ const ReportDownloader: React.FC = () => {
       });
     });
     return items;
-  }, [reportData]);
+  }, [downloadReports.data]);
 
   return (
     <div className="h-full flex flex-col animate-fade-in w-full">
@@ -242,9 +244,9 @@ const ReportDownloader: React.FC = () => {
                 <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">Región</label>
                 <div className="relative">
                   <select 
-                     value={region} 
-                     onChange={(e) => setRegion(e.target.value)}
-                     className={`w-full appearance-none bg-white border border-gray-300 rounded-lg py-3 px-4 leading-tight focus:outline-none focus:ring-2 focus:ring-alquid-blue focus:border-transparent font-medium shadow-sm transition-all cursor-pointer hover:border-gray-400 ${region === "" ? "text-gray-500" : "text-gray-900"}`}
+                     value={downloadRegion} 
+                     onChange={(e) => setDownloadRegion(e.target.value)}
+                     className={`w-full appearance-none bg-white border border-gray-300 rounded-lg py-3 px-4 leading-tight focus:outline-none focus:ring-2 focus:ring-alquid-blue focus:border-transparent font-medium shadow-sm transition-all cursor-pointer hover:border-gray-400 ${downloadRegion === "" ? "text-gray-500" : "text-gray-900"}`}
                   >
                     <option value="" disabled>Seleccionar región</option>
                     {regions.map(r => (
@@ -261,9 +263,9 @@ const ReportDownloader: React.FC = () => {
                 <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">Entorno</label>
                 <div className="relative">
                   <select 
-                     value={env} 
-                     onChange={(e) => setEnv(e.target.value)}
-                     className={`w-full appearance-none bg-white border border-gray-300 rounded-lg py-3 px-4 leading-tight focus:outline-none focus:ring-2 focus:ring-alquid-blue focus:border-transparent font-medium shadow-sm transition-all cursor-pointer hover:border-gray-400 ${env === "" ? "text-gray-500" : "text-gray-900"}`}
+                     value={downloadEnv} 
+                     onChange={(e) => setDownloadEnv(e.target.value)}
+                     className={`w-full appearance-none bg-white border border-gray-300 rounded-lg py-3 px-4 leading-tight focus:outline-none focus:ring-2 focus:ring-alquid-blue focus:border-transparent font-medium shadow-sm transition-all cursor-pointer hover:border-gray-400 ${downloadEnv === "" ? "text-gray-500" : "text-gray-900"}`}
                   >
                     <option value="" disabled>Seleccionar entorno</option>
                     {environments.map(e => (
@@ -277,11 +279,11 @@ const ReportDownloader: React.FC = () => {
               </div>
 
               <div>
-                <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">Load ID <span className="text-gray-400 font-normal">(Opcional)</span></label>
+                <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">Load ID <span className="text-red-500">*</span></label>
                 <input 
                   type="text" 
-                  value={loadId}
-                  onChange={(e) => setLoadId(e.target.value)}
+                  value={downloadLoadId}
+                  onChange={(e) => setDownloadLoadId(e.target.value)}
                   placeholder="Seleccionar Load ID"
                   className="w-full bg-white text-gray-900 border border-gray-300 rounded-lg py-3 px-4 leading-tight focus:outline-none focus:ring-2 focus:ring-alquid-blue focus:border-transparent font-mono shadow-sm placeholder-gray-400"
                 />
@@ -300,6 +302,7 @@ const ReportDownloader: React.FC = () => {
                  accept=".json" 
                  onFileLoaded={handleQueriesLoaded} 
                  onRemove={handleRemoveQueries}
+                 initialFileName={downloadReports.fileName}
                  required 
                />
                <FileInput 
@@ -307,6 +310,7 @@ const ReportDownloader: React.FC = () => {
                  accept=".json" 
                  onFileLoaded={handleConfigLoaded} 
                  onRemove={handleRemoveConfig}
+                 initialFileName={downloadConfig.fileName}
                  required 
                />
             </div>
@@ -449,9 +453,9 @@ const ReportDownloader: React.FC = () => {
             
             <button 
               onClick={runDownload}
-              disabled={isProcessing || !configData || selectedQueries.size === 0}
+              disabled={isProcessing || !downloadConfig.data || selectedQueries.size === 0}
               className={`w-full py-4 rounded-xl font-bold text-white shadow-lg flex justify-center items-center gap-3 transition-all transform active:scale-[0.99]
-                ${isProcessing || !configData || selectedQueries.size === 0
+                ${isProcessing || !downloadConfig.data || selectedQueries.size === 0
                   ? 'bg-gray-300 cursor-not-allowed shadow-none' 
                   : 'bg-alquid-red hover:bg-red-600 hover:shadow-xl hover:-translate-y-0.5'
                 }

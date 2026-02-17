@@ -2,24 +2,29 @@ import React, { useState, useMemo } from 'react';
 import { FileCode, Database, Code, Square, CheckSquare, Filter } from 'lucide-react';
 import FileInput from '../components/FileInput';
 import PageHeader from '../components/PageHeader';
-import { ReportDefinition, QueryDefinition } from '../types';
+import { QueryDefinition } from '../types';
 import { prepareFinalSql, formatSqlBonito } from '../utils/sqlFormatter';
+import { useGlobalState } from '../context/GlobalStateContext';
 
 const SqlExtractor: React.FC = () => {
-  const [reportData, setReportData] = useState<ReportDefinition[]>([]);
-  const [selectedQueries, setSelectedQueries] = useState<Set<string>>(new Set());
-  const [loadId, setLoadId] = useState("");
+  // Use Global State (Extractor Specific)
+  const { 
+    extractReports, setExtractReports, clearExtractReports,
+    extractLoadId, setExtractLoadId
+  } = useGlobalState();
 
-  const handleQueriesLoaded = (content: string) => {
+  const [selectedQueries, setSelectedQueries] = useState<Set<string>>(new Set());
+
+  const handleQueriesLoaded = (content: string, fileName: string) => {
     try {
-      setReportData(JSON.parse(content));
+      setExtractReports(JSON.parse(content), fileName);
     } catch (e) {
       alert("JSON inválido");
     }
   };
 
   const handleRemoveFile = () => {
-    setReportData([]);
+    clearExtractReports();
     setSelectedQueries(new Set());
   };
 
@@ -31,7 +36,7 @@ const SqlExtractor: React.FC = () => {
   };
 
   const getTotalQueries = () => {
-    return reportData.reduce((acc, r) => acc + r.queries.length, 0);
+    return extractReports.data.reduce((acc, r) => acc + r.queries.length, 0);
   };
 
   const toggleAll = () => {
@@ -39,7 +44,7 @@ const SqlExtractor: React.FC = () => {
        setSelectedQueries(new Set());
     } else {
        const allIds = new Set<string>();
-       reportData.forEach(r => r.queries.forEach(q => allIds.add(`${r.report}|${q.filename}`)));
+       extractReports.data.forEach(r => r.queries.forEach(q => allIds.add(`${r.report}|${q.filename}`)));
        setSelectedQueries(allIds);
     }
   };
@@ -49,11 +54,11 @@ const SqlExtractor: React.FC = () => {
     
     let processedCount = 0;
 
-    reportData.forEach(r => {
+    extractReports.data.forEach(r => {
       r.queries.forEach(q => {
         const id = `${r.report}|${q.filename}`;
         if (selectedQueries.has(id)) {
-           const rawSql = prepareFinalSql(q, loadId);
+           const rawSql = prepareFinalSql(q, extractLoadId);
            const prettySql = formatSqlBonito(rawSql);
            const content = `-- REPORT: ${r.report}\n-- FILE: ${q.filename}\n\n${prettySql}`;
            
@@ -74,10 +79,10 @@ const SqlExtractor: React.FC = () => {
     if (processedCount > 0) alert(`Se descargaron ${processedCount} archivos SQL.`);
   };
 
-  // Flatten data for table view (Reuse logic from ReportDownloader)
+  // Flatten data for table view
   const flatData = useMemo(() => {
     const items: { id: string, report: string, folder: string, filenameOnly: string, query: QueryDefinition }[] = [];
-    reportData.forEach(r => {
+    extractReports.data.forEach(r => {
       r.queries.forEach(q => {
         const parts = q.filename.split('/');
         const folder = parts.length > 1 ? parts[0] : '';
@@ -93,7 +98,7 @@ const SqlExtractor: React.FC = () => {
       });
     });
     return items;
-  }, [reportData]);
+  }, [extractReports.data]);
 
   return (
     <div className="h-full flex flex-col animate-fade-in w-full">
@@ -112,19 +117,19 @@ const SqlExtractor: React.FC = () => {
                  accept=".json" 
                  onFileLoaded={handleQueriesLoaded} 
                  onRemove={handleRemoveFile}
+                 initialFileName={extractReports.fileName}
                  required 
                />
                
                <div>
-                 <label className="block text-sm font-semibold text-gray-700 mb-2">LOAD_ID (Opcional)</label>
+                 <label className="block text-sm font-semibold text-gray-700 mb-2">Load ID</label>
                  <input 
                    type="text" 
-                   value={loadId}
-                   onChange={(e) => setLoadId(e.target.value)}
-                   placeholder="Valor por defecto para :load_id"
+                   value={extractLoadId}
+                   onChange={(e) => setExtractLoadId(e.target.value)}
+                   placeholder="Seleccionar Load ID"
                    className="w-full p-4 border border-gray-300 rounded-xl focus:ring-2 focus:ring-alquid-blue outline-none transition-shadow shadow-sm"
                  />
-                 <p className="text-xs text-gray-400 mt-2 ml-1">Si se deja vacío, las variables :load_id permanecerán en el código.</p>
                </div>
             </div>
          </div>
