@@ -1,0 +1,5 @@
+{
+  "name": "ALQUID Data Tools",
+  "description": "A modern web suite for SQL extraction, report downloading, and JSON configuration management based on the ALQUID ecosystem.",
+  "requestFramePermissions": []
+}
