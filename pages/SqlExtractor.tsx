@@ -60,7 +60,8 @@ const SqlExtractor: React.FC = () => {
         if (selectedQueries.has(id)) {
            const rawSql = prepareFinalSql(q, extractLoadId);
            const prettySql = formatSqlBonito(rawSql);
-           const content = `-- REPORT: ${r.report}\n-- FILE: ${q.filename}\n\n${prettySql}`;
+           // Removed headers as requested
+           const content = prettySql;
            
            const blob = new Blob([content], { type: 'text/sql' });
            const url = window.URL.createObjectURL(blob);
