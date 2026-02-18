@@ -1,220 +1,238 @@
 import { QueryDefinition } from '../types';
 
-const MAX_LINE_WIDTH = 120; // Ancho máximo sugerido antes de forzar saltos
-const INDENT_SIZE = 4;      // Espacios por nivel de indentación
+const INDENT_STR = "  "; // 2 spaces based on Reference File 1
 
-// Palabras clave que siempre inician una nueva línea "dura" (nivel superior)
 const TOP_LEVEL_KEYWORDS = new Set([
-  'SELECT', 'FROM', 'WHERE', 'GROUP BY', 'ORDER BY', 'HAVING', 'UNION', 'UNION ALL', 'LIMIT', 'WITH'
+  'SELECT', 'FROM', 'WHERE', 'GROUP BY', 'ORDER BY', 'HAVING', 'LIMIT', 
+  'UNION', 'UNION ALL', 'EXCEPT', 'INTERSECT', 'WITH'
 ]);
 
-// Palabras clave que inician nueva línea dentro de su bloque
-const NEWLINE_KEYWORDS = new Set([
-  'CASE', 'WHEN', 'ELSE', 'END', 'LEFT JOIN', 'INNER JOIN', 'RIGHT JOIN', 'OUTER JOIN', 'JOIN', 'ON'
-]);
+/**
+ * Tokenizer that preserves strings and comments
+ */
+const tokenizeSql = (sql: string): string[] => {
+  const tokens: string[] = [];
+  let current = '';
+  let mode: 'sql' | 'string' | 'comment' = 'sql';
+  let quoteChar = '';
 
-// Operadores lógicos que fuerzan salto si la línea es larga
-const LOGICAL_OPS = new Set(['AND', 'OR']);
+  for (let i = 0; i < sql.length; i++) {
+    const char = sql[i];
+    const nextChar = sql[i + 1];
 
-// Funciones de agregación comunes
-const AGG_FUNCTIONS = new Set(['SUM', 'COUNT', 'AVG', 'MIN', 'MAX', 'COALESCE', 'ROUND', 'CAST']);
+    if (mode === 'string') {
+      current += char;
+      if (char === quoteChar) {
+        if (nextChar === quoteChar) {
+          current += nextChar; // Escaped quote
+          i++;
+        } else {
+          tokens.push(current);
+          current = '';
+          mode = 'sql';
+        }
+      }
+    } else if (mode === 'comment') {
+      current += char;
+      if (char === '\n') {
+        tokens.push(current.trim());
+        current = '';
+        mode = 'sql';
+      }
+    } else {
+      // SQL Mode
+      if (char === "'" || char === '"') {
+        if (current) tokens.push(current);
+        current = char;
+        mode = 'string';
+        quoteChar = char;
+      } else if (char === '-' && nextChar === '-') {
+        if (current) tokens.push(current);
+        current = '--';
+        mode = 'comment';
+        i++;
+      } else if (/\s/.test(char)) {
+        if (current) tokens.push(current);
+        current = '';
+      } else if (['(', ')', ',', ';', '+', '-', '*', '/'].includes(char)) {
+        if (current) tokens.push(current);
+        tokens.push(char);
+        current = '';
+      } else {
+        current += char;
+      }
+    }
+  }
+  if (current) tokens.push(current);
+
+  // Merge composite keywords
+  const merged: string[] = [];
+  for (let i = 0; i < tokens.length; i++) {
+    const t = tokens[i];
+    const up = t.toUpperCase();
+    const next = tokens[i+1] ? tokens[i+1].toUpperCase() : '';
+    
+    if (up === 'GROUP' && next === 'BY') { merged.push('GROUP BY'); i++; }
+    else if (up === 'ORDER' && next === 'BY') { merged.push('ORDER BY'); i++; }
+    else if (up === 'UNION' && next === 'ALL') { merged.push('UNION ALL'); i++; }
+    else if (up === 'LEFT' && next === 'JOIN') { merged.push('LEFT JOIN'); i++; }
+    else if (up === 'RIGHT' && next === 'JOIN') { merged.push('RIGHT JOIN'); i++; }
+    else if (up === 'INNER' && next === 'JOIN') { merged.push('INNER JOIN'); i++; }
+    else if (up === 'OUTER' && next === 'JOIN') { merged.push('OUTER JOIN'); i++; }
+    else if (up === 'CROSS' && next === 'JOIN') { merged.push('CROSS JOIN'); i++; }
+    else { merged.push(t); }
+  }
+  return merged;
+};
 
 export const formatSqlBonito = (sql: string): string => {
   if (!sql) return "";
-
-  // 1. Proteger cadenas de texto (Strings)
-  const stringPlaceholders: string[] = [];
-  let protectedSql = sql.replace(/'(?:''|[^'])*'/g, (match) => {
-    stringPlaceholders.push(match);
-    return `__STR_${stringPlaceholders.length - 1}__`;
-  });
-
-  // 2. Normalizar espacios
-  protectedSql = protectedSql.replace(/\s+/g, ' ').trim();
-
-  // 3. Tokenización mejorada:
-  // Separa: parentesis, comas, operadores matemáticos, palabras clave compuestas
-  protectedSql = protectedSql
-    // Separar parentesis y comas
-    .replace(/([(),])/g, ' $1 ')
-    // Separar operadores matemáticos clave para fórmulas (+ - * /)
-    .replace(/(\s+[-+*/]\s+)/g, ' $1 ') 
-    // Asegurar que CASE, WHEN, END, ELSE estén separados
-    .replace(/\b(CASE|WHEN|THEN|ELSE|END)\b/gi, ' $1 ')
-    .trim();
-
-  // Dividir en tokens por espacios
-  const tokens = protectedSql.split(/\s+/);
   
+  const tokens = tokenizeSql(sql);
   let formatted = "";
-  let currentIndentLevel = 0;
+  let currentIndent = 0;
   let currentLine = "";
-  let parenthesisLevel = 0;
+  let parenLevel = 0; // The key to avoiding cascade
+  
+  const spaces = (level: number) => INDENT_STR.repeat(Math.max(0, level));
 
-  const getIndent = (level: number) => " ".repeat(Math.max(0, level * INDENT_SIZE));
-
-  const flushLine = () => {
+  const flush = () => {
     if (currentLine.trim()) {
-      formatted += (formatted ? "\n" : "") + currentLine;
+      formatted += (formatted ? "\n" : "") + spaces(currentIndent) + currentLine.trim();
     }
-    currentLine = getIndent(currentIndentLevel);
+    currentLine = "";
   };
 
   for (let i = 0; i < tokens.length; i++) {
     const token = tokens[i];
-    const upperToken = token.toUpperCase();
-    const nextToken = tokens[i + 1] ? tokens[i + 1].toUpperCase() : "";
-    const prevToken = tokens[i - 1] ? tokens[i - 1].toUpperCase() : "";
-
-    // --- REGLAS DE ESTRUCTURA ---
-
-    // 1. Palabras clave de Nivel Superior (SELECT, FROM...)
-    if (TOP_LEVEL_KEYWORDS.has(upperToken) || (upperToken === 'GROUP' && nextToken === 'BY') || (upperToken === 'ORDER' && nextToken === 'BY')) {
-      flushLine();
-      if (upperToken === 'UNION') {
-         // UNION suele ir entre bloques
-      }
-      currentLine = getIndent(0) + token + " "; // Reset indent visual para keywords principales
-      
-      // Manejar keywords compuestas
-      if ((upperToken === 'GROUP' || upperToken === 'ORDER') && nextToken === 'BY') {
-        currentLine += tokens[i + 1] + " ";
-        i++; 
-      } else if (upperToken === 'UNION' && nextToken === 'ALL') {
-        currentLine += tokens[i + 1] + " ";
-        i++;
-      }
-      
-      currentIndentLevel = 1; // El contenido siguiente va indentado
+    const upper = token.toUpperCase();
+    
+    // --- Comments ---
+    if (token.startsWith('--')) {
+      if (currentLine.trim()) flush();
+      formatted += (formatted ? "\n" : "") + spaces(currentIndent) + token;
       continue;
     }
 
-    // 2. Palabras clave de estructura (CASE, WHEN, JOIN...)
-    if (NEWLINE_KEYWORDS.has(upperToken)) {
-      if (upperToken === 'CASE') {
-        flushLine();
-        currentIndentLevel++;
-        currentLine = getIndent(currentIndentLevel) + token + " ";
-      } else if (upperToken === 'END') {
-        currentIndentLevel = Math.max(0, currentIndentLevel - 1);
-        flushLine();
-        currentLine = getIndent(currentIndentLevel) + token + " ";
-        
-        // Si END va seguido de AS "Alias", mantener en la misma línea
-        if (nextToken === 'AS' || (tokens[i + 1] && !NEWLINE_KEYWORDS.has(tokens[i + 1].toUpperCase()) && tokens[i+1] !== ',' && tokens[i+1] !== ')')) {
-           // No saltar línea aún
-        }
-      } else if (upperToken === 'ELSE') {
-        flushLine();
-        currentLine = getIndent(currentIndentLevel) + token + " ";
-      } else if (upperToken === 'WHEN') {
-        flushLine();
-        currentLine = getIndent(currentIndentLevel) + token + " ";
-      } else if (upperToken.includes('JOIN')) {
-        flushLine();
-        currentLine = getIndent(1) + token + " "; // Joins al nivel 1
-      } else if (upperToken === 'ON') {
-         currentLine += token + " "; // ON suele ir pegado al JOIN, o saltar si es largo (manejado por longitud)
+    // --- Main Clauses (Always Level 0) ---
+    if (TOP_LEVEL_KEYWORDS.has(upper)) {
+      flush();
+      currentIndent = 0;
+      formatted += (formatted ? "\n" : "") + token; 
+      currentIndent = 1; 
+      continue;
+    }
+
+    // --- CASE (Structure vs Inline) ---
+    if (upper === 'CASE') {
+      if (parenLevel === 0) {
+        // Structural CASE (e.g. defining a column category)
+        flush();
+        currentLine = token; 
+        flush(); // 'CASE' on its own line
+        currentIndent = 2; // Indent body
       } else {
-         currentLine += token + " ";
+        // Inline CASE (e.g. inside SUM)
+        currentLine += (currentLine ? " " : "") + token;
       }
       continue;
     }
 
-    // 3. Manejo de Paréntesis (Funciones vs Agrupación Lógica)
+    if (upper === 'WHEN') {
+      if (parenLevel === 0) {
+        flush(); 
+        currentLine = token;
+      } else {
+        currentLine += " " + token;
+      }
+      continue;
+    }
+
+    if (upper === 'ELSE') {
+      if (parenLevel === 0) {
+        flush();
+        currentLine = token;
+      } else {
+        currentLine += " " + token;
+      }
+      continue;
+    }
+
+    if (upper === 'END') {
+      if (parenLevel === 0) {
+        flush();
+        currentIndent = 1; // Return to column indent level
+        currentLine = token;
+      } else {
+        currentLine += " " + token;
+      }
+      continue;
+    }
+
+    // --- Logic Operators ---
+    if (['AND', 'OR'].includes(upper)) {
+      if (parenLevel === 0) {
+        // Top level logic (WHERE clauses) gets new lines
+        flush();
+        currentLine = token;
+      } else {
+        // Logic inside parens (calculations/complex conditions) stays inline
+        currentLine += " " + token;
+      }
+      continue;
+    }
+
+    // --- Commas ---
+    if (token === ',') {
+      currentLine += token;
+      if (parenLevel === 0) {
+        flush(); // List item separator
+      }
+      continue;
+    }
+
+    // --- Parentheses (Control Inline Mode) ---
     if (token === '(') {
-      parenthesisLevel++;
-      // Si el token anterior es una función de agregación (SUM, COUNT), intenta mantenerlo junto
-      // a menos que dentro haya un CASE
-      if (AGG_FUNCTIONS.has(prevToken)) {
-         currentLine = currentLine.trimEnd() + token; // Pegar 'SUM' con '('
-         // Check lookahead: si viene un CASE, forzar salto e indentación
-         if (nextToken === 'CASE') {
-             currentIndentLevel++;
-             flushLine();
-             currentLine = getIndent(currentIndentLevel);
-         }
-      } else {
-         currentLine += token + " ";
-      }
+      // Attach to previous word if function-like, else space
+      const prev = tokens[i-1] ? tokens[i-1].toUpperCase() : '';
+      // Heuristic: if prev is an operator or keyword space, if function no space
+      const isFunc = /^[A-Z0-9_]+$/i.test(prev) && !['AND','OR','IN','WHEN','IF','ELSE'].includes(prev);
+      
+      currentLine += (isFunc || currentLine.endsWith('(') ? "" : " ") + token;
+      parenLevel++;
       continue;
     }
 
     if (token === ')') {
-      parenthesisLevel--;
-      // Si cerramos un bloque grande (ej. después de un END), quizás convenga ajustar
-      // Si el parentesis cierra un bloque indentado que empezó con salto
-      if (currentLine.trim() === '') {
-         // Estamos en línea nueva, ajustar indent del cierre
-         // currentIndentLevel = Math.max(0, currentIndentLevel - 1); 
-         // (Opcional: lógica compleja de indentación de cierres)
-         currentLine = getIndent(currentIndentLevel) + token + " ";
-      } else {
-         // Si cerramos justo después de un END, asegurarnos de que el END y el ) se vean bien
-         if (prevToken === 'END') {
-             currentIndentLevel = Math.max(0, currentIndentLevel - 1); // Bajar nivel del SUM(
-             flushLine();
-             currentLine = getIndent(currentIndentLevel) + token + " ";
-         } else {
-             currentLine = currentLine.trimEnd() + token + " ";
-         }
-      }
+      currentLine += token;
+      parenLevel = Math.max(0, parenLevel - 1);
       continue;
     }
 
-    // 4. Operadores Lógicos (AND/OR)
-    if (LOGICAL_OPS.has(upperToken)) {
-      // Si la línea actual ya es muy larga o estamos dentro de un WHERE complejo
-      if (currentLine.length > 60) {
-        flushLine();
-        currentLine = getIndent(currentIndentLevel) + token + " ";
-      } else {
-        currentLine += token + " ";
-      }
-      continue;
+    // --- Joins ---
+    if (upper.includes('JOIN')) {
+       flush();
+       currentIndent = 0; // JOINs usually align with FROM
+       currentLine = token;
+       // We might want to indent ON, but keeping it simple usually works
+       continue;
+    }
+    if (upper === 'ON') {
+       // Keep ON with JOIN or break? Reference usually keeps it flowy or simple break
+       currentLine += " " + token;
+       continue;
     }
 
-    // 5. Comas (separador de columnas)
-    if (token === ',') {
-      currentLine = currentLine.trimEnd() + token; // Pegar coma al anterior
-      flushLine(); // Forzar salto después de coma (lista de columnas)
-      continue;
+    // --- Default Word Appending ---
+    // Avoid space if line empty or after specific chars
+    if (currentLine.length > 0 && !['(', '.'].includes(currentLine.slice(-1)) && token !== '.') {
+      currentLine += " ";
     }
-
-    // 6. Operadores Matemáticos (+ - * /) a nivel de bloque
-    // Detectar patrones como ") - (" o "END - SUM"
-    if (['+', '-', '*', '/'].includes(token)) {
-        // Si es una operación entre bloques grandes (ej: SUM(...) - SUM(...))
-        // Lo detectamos si la línea actual está casi vacía o si el anterior fue un cierre de bloque
-        if (prevToken === ')' || prevToken === 'END' || currentLine.trim().length === 0) {
-            flushLine();
-            currentLine = getIndent(currentIndentLevel) + token + " ";
-            continue;
-        }
-    }
-
-    // --- REGLA DE LONGITUD DE LÍNEA ---
-    // Añadir token normal
-    const potentialLine = currentLine + token + " ";
-    
-    // Si la línea se pasa del máximo Y no es un string gigante único
-    if (potentialLine.length > MAX_LINE_WIDTH) {
-       // Intentar romper antes del token si no es un token "pegajoso"
-       flushLine();
-       // Indentar un poco extra para indicar continuación
-       currentLine = getIndent(currentIndentLevel) + "  " + token + " ";
-    } else {
-       currentLine += token + " ";
-    }
+    currentLine += token;
   }
   
-  // Guardar última línea
-  flushLine();
-
-  // 4. Restaurar Strings
-  formatted = formatted.replace(/__STR_(\d+)__/g, (_, index) => stringPlaceholders[parseInt(index)]);
-
-  return formatted.trim();
+  flush();
+  return formatted;
 };
 
 export const prepareFinalSql = (queryData: QueryDefinition, loadIdVal: string): string => {
@@ -224,10 +242,9 @@ export const prepareFinalSql = (queryData: QueryDefinition, loadIdVal: string): 
   if (queryData.parameters) {
     Object.entries(queryData.parameters).forEach(([k, v]) => {
       const valRaw = v.value;
-      const type = v.type;
       let valFinal = '';
 
-      if (type === "LIST") {
+      if (v.type === "LIST" || Array.isArray(valRaw)) {
         let lista: any[] = [];
         if (typeof valRaw === 'string' && valRaw.includes('[')) {
           try {
@@ -253,7 +270,7 @@ export const prepareFinalSql = (queryData: QueryDefinition, loadIdVal: string): 
   sql = sql.replace(/':load_id'/g, ":load_id").replace(/":load_id"/g, ":load_id");
   if (loadIdVal.trim()) {
     const lId = loadIdVal.trim();
-    const valId = /^\d+$/.test(lId) ? lId : `'${lId}'`;
+    const valId = `'${lId.replace(/'/g, "")}'`; 
     sql = sql.replace(/:load_id/g, valId);
   }
 
