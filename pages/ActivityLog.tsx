@@ -1,5 +1,5 @@
 import React, { useRef } from 'react';
-import { Activity, Terminal, Clock, CheckCircle2, AlertCircle, Info, XCircle, Filter, Trash2, FileJson, Database, Download } from 'lucide-react';
+import { Activity, Terminal, Clock, CheckCircle2, AlertCircle, Info, XCircle, Trash2, FileJson, Database, Download } from 'lucide-react';
 import { useGlobalState } from '../context/GlobalStateContext';
 import PageHeader from '../components/PageHeader';
 

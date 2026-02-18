@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useRef, useEffect } from 'react';
-import { Save, FileJson, Edit3, X, Upload, Plus, Trash2, Database, Maximize2, Minimize2, Wand2 } from 'lucide-react';
+import { Save, FileJson, Edit3, X, Upload, Plus, Database, Maximize2, Minimize2, Wand2 } from 'lucide-react';
 import Editor from 'react-simple-code-editor';
 import FileInput from '../components/FileInput';
 import PageHeader from '../components/PageHeader';

@@ -22,9 +22,9 @@ const HomePage: React.FC = () => {
             Gestiona queries, extrae scripts SQL para producción y descarga informes financieros con validaciones automáticas.
           </p>
           <div className="flex flex-wrap gap-4">
-            <a href="#" className="px-6 py-3 bg-alquid-navy text-white rounded-xl font-medium shadow-lg hover:bg-opacity-90 hover:-translate-y-0.5 transition-all flex items-center gap-2">
+            <Link to="/documentation" className="px-6 py-3 bg-alquid-navy text-white rounded-xl font-medium shadow-lg hover:bg-opacity-90 hover:-translate-y-0.5 transition-all flex items-center gap-2">
                <BookOpen size={18} /> Ver Documentación
-            </a>
+            </Link>
           </div>
         </div>
       </div>

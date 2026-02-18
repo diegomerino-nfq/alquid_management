@@ -7,6 +7,7 @@ import SqlExtractor from './pages/SqlExtractor';
 import JsonEditor from './pages/JsonEditor';
 import ActivityLog from './pages/ActivityLog';
 import Repository from './pages/Repository';
+import Documentation from './pages/Documentation';
 import IntroAnimation from './components/IntroAnimation';
 import { GlobalStateProvider } from './context/GlobalStateContext';
 
@@ -23,6 +24,7 @@ const App: React.FC = () => {
             <Route path="/editor" element={<JsonEditor />} />
             <Route path="/repository" element={<Repository />} />
             <Route path="/activity" element={<ActivityLog />} />
+            <Route path="/documentation" element={<Documentation />} />
           </Routes>
         </Layout>
       </HashRouter>
