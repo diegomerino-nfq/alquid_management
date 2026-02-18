@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { Play, Settings, Database, ChevronLeft, Sliders, CheckSquare, Square, Filter, CheckCircle2, XCircle } from 'lucide-react';
+import { Play, Settings, Database, CheckSquare, Square, Filter, CheckCircle2, XCircle } from 'lucide-react';
 import FileInput from '../components/FileInput';
 import PageHeader from '../components/PageHeader';
 import { QueryDefinition, EXPECTED_DATABASES } from '../types';
@@ -13,14 +13,12 @@ const ReportDownloader: React.FC = () => {
     downloadConfig, setDownloadConfig, clearDownloadConfig,
     downloadRegion, setDownloadRegion,
     downloadEnv, setDownloadEnv,
-    downloadLoadId, setDownloadLoadId
+    downloadLoadId, setDownloadLoadId,
+    addLog // Adding logger
   } = useGlobalState();
 
   const [selectedQueries, setSelectedQueries] = useState<Set<string>>(new Set());
   
-  // Configuration UI State
-  const [isConfigOpen, setIsConfigOpen] = useState(true);
-
   // Sorted options
   const regions = ["Argentina", "Colombia", "España", "New York", "Perú", "Suiza"].sort();
   const environments = ["PRE", "PRO"].sort();
@@ -33,8 +31,10 @@ const ReportDownloader: React.FC = () => {
     try {
       const json = JSON.parse(content);
       setDownloadReports(json, fileName);
+      addLog('DESCARGA', 'CARGA_ARCHIVO', `Archivo de queries cargado: ${fileName}`, 'SUCCESS');
     } catch (e) {
       alert("JSON de queries inválido");
+      addLog('DESCARGA', 'ERROR_CARGA', `Fallo al leer JSON de queries: ${fileName}`, 'ERROR');
     }
   };
 
@@ -42,17 +42,21 @@ const ReportDownloader: React.FC = () => {
     try {
       const json = JSON.parse(content);
       setDownloadConfig(json, fileName);
+      addLog('DESCARGA', 'CARGA_ARCHIVO', `Archivo de config cargado: ${fileName}`, 'SUCCESS');
     } catch (e) {
       alert("JSON de configuración inválido");
+      addLog('DESCARGA', 'ERROR_CARGA', `Fallo al leer JSON de config: ${fileName}`, 'ERROR');
     }
   };
 
   const handleRemoveQueries = () => {
+    addLog('DESCARGA', 'ELIMINAR_ARCHIVO', `Archivo de queries eliminado: ${downloadReports.fileName}`, 'INFO');
     clearDownloadReports();
     setSelectedQueries(new Set());
   };
 
   const handleRemoveConfig = () => {
+    addLog('DESCARGA', 'ELIMINAR_ARCHIVO', `Archivo de config eliminado: ${downloadConfig.fileName}`, 'INFO');
     clearDownloadConfig();
   };
 
@@ -132,6 +136,7 @@ const ReportDownloader: React.FC = () => {
     setIsProcessing(true);
     setProgress(0);
     setLogs([]);
+    addLog('DESCARGA', 'INICIO_PROCESO', `Iniciando descarga de ${selectedQueries.size} informes para ${downloadRegion} ${downloadEnv}. LoadID: ${downloadLoadId}`, 'INFO');
 
     const queriesToRun: { report: string, query: QueryDefinition }[] = [];
     downloadReports.data.forEach(r => {
@@ -177,14 +182,18 @@ const ReportDownloader: React.FC = () => {
         
       } catch (e) {
         setLogs(prev => [`[${new Date().toLocaleTimeString()}] ❌ Error: ${item.query.filename}`, ...prev]);
+        errorCount++; // Count runtime errors too
       }
       setProgress(percent);
     }
 
     setIsProcessing(false);
     if (errorCount > 0) {
-        alert(`Proceso finalizado con ${errorCount} queries omitidas por validación.`);
+        const successCount = total - errorCount;
+        addLog('DESCARGA', 'FIN_PROCESO', `Proceso finalizado. ${successCount} OK, ${errorCount} Fallidos.`, 'WARNING');
+        alert(`Proceso finalizado con ${errorCount} queries omitidas por validación o error.`);
     } else {
+        addLog('DESCARGA', 'FIN_PROCESO', `Descarga completada exitosamente (${total} archivos).`, 'SUCCESS');
         alert("Proceso finalizado correctamente.");
     }
   };
@@ -220,33 +229,20 @@ const ReportDownloader: React.FC = () => {
 
       <div className="flex flex-1 gap-6 h-full relative overflow-hidden">
         
-        {/* Collapsible Sidebar Configuration */}
+        {/* Fixed Sidebar Configuration */}
         <div 
-          className={`
-            bg-white border border-gray-200 shadow-lg rounded-xl flex flex-col transition-all duration-300 ease-in-out z-10
-            ${isConfigOpen ? 'w-80 translate-x-0 opacity-100' : 'w-0 -translate-x-full opacity-0 overflow-hidden border-0'}
-          `}
+          className="bg-white border border-alquid-gray40 border-opacity-40 shadow-lg rounded-xl flex flex-col z-10 w-80"
         >
-          <div className="p-5 border-b border-gray-100 bg-gray-50 flex items-center justify-between rounded-t-xl flex-shrink-0">
-            <h3 className="font-bold text-gray-800 flex items-center gap-2">
-              <Settings size={18} className="text-alquid-blue"/> 
-              Configuración
-            </h3>
-            <button onClick={() => setIsConfigOpen(false)} className="md:hidden">
-              <ChevronLeft size={20} />
-            </button>
-          </div>
-
           <div className="p-5 space-y-6 overflow-y-auto flex-1 custom-scrollbar">
             {/* Environment Settings */}
-            <div className="space-y-4">
+            <div className="space-y-4 mt-2">
               <div>
                 <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">Región</label>
                 <div className="relative">
                   <select 
                      value={downloadRegion} 
                      onChange={(e) => setDownloadRegion(e.target.value)}
-                     className={`w-full appearance-none bg-white border border-gray-300 rounded-lg py-3 px-4 leading-tight focus:outline-none focus:ring-2 focus:ring-alquid-blue focus:border-transparent font-medium shadow-sm transition-all cursor-pointer hover:border-gray-400 ${downloadRegion === "" ? "text-gray-500" : "text-gray-900"}`}
+                     className={`w-full appearance-none bg-white border border-gray-300 rounded-lg py-3 px-4 leading-tight focus:outline-none focus:ring-2 focus:ring-alquid-navy focus:border-transparent font-medium shadow-sm transition-all cursor-pointer hover:border-gray-400 ${downloadRegion === "" ? "text-gray-500" : "text-gray-900"}`}
                   >
                     <option value="" disabled>Seleccionar región</option>
                     {regions.map(r => (
@@ -265,7 +261,7 @@ const ReportDownloader: React.FC = () => {
                   <select 
                      value={downloadEnv} 
                      onChange={(e) => setDownloadEnv(e.target.value)}
-                     className={`w-full appearance-none bg-white border border-gray-300 rounded-lg py-3 px-4 leading-tight focus:outline-none focus:ring-2 focus:ring-alquid-blue focus:border-transparent font-medium shadow-sm transition-all cursor-pointer hover:border-gray-400 ${downloadEnv === "" ? "text-gray-500" : "text-gray-900"}`}
+                     className={`w-full appearance-none bg-white border border-gray-300 rounded-lg py-3 px-4 leading-tight focus:outline-none focus:ring-2 focus:ring-alquid-navy focus:border-transparent font-medium shadow-sm transition-all cursor-pointer hover:border-gray-400 ${downloadEnv === "" ? "text-gray-500" : "text-gray-900"}`}
                   >
                     <option value="" disabled>Seleccionar entorno</option>
                     {environments.map(e => (
@@ -285,7 +281,7 @@ const ReportDownloader: React.FC = () => {
                   value={downloadLoadId}
                   onChange={(e) => setDownloadLoadId(e.target.value)}
                   placeholder="Seleccionar Load ID"
-                  className="w-full bg-white text-gray-900 border border-gray-300 rounded-lg py-3 px-4 leading-tight focus:outline-none focus:ring-2 focus:ring-alquid-blue focus:border-transparent font-mono shadow-sm placeholder-gray-400"
+                  className="w-full bg-white text-gray-900 border border-gray-300 rounded-lg py-3 px-4 leading-tight focus:outline-none focus:ring-2 focus:ring-alquid-navy focus:border-transparent font-mono shadow-sm placeholder-gray-400"
                 />
               </div>
             </div>
@@ -318,20 +314,11 @@ const ReportDownloader: React.FC = () => {
         </div>
 
         {/* Main Content Area */}
-        <div className="flex-1 flex flex-col h-full overflow-hidden bg-white rounded-xl shadow-sm border border-gray-200">
+        <div className="flex-1 flex flex-col h-full overflow-hidden bg-white rounded-xl shadow-sm border border-alquid-gray40 border-opacity-40">
           
           {/* Toolbar */}
-          <div className="p-4 border-b border-gray-200 flex justify-between items-center bg-gray-50 rounded-t-xl flex-shrink-0">
+          <div className="p-4 border-b border-alquid-gray40 border-opacity-40 flex justify-between items-center bg-alquid-gray10 rounded-t-xl flex-shrink-0">
             <div className="flex items-center gap-3">
-              {!isConfigOpen && (
-                <button 
-                  onClick={() => setIsConfigOpen(true)}
-                  className="bg-white hover:bg-gray-100 text-alquid-blue p-2 rounded-lg border border-gray-300 shadow-sm transition-all"
-                  title="Abrir Configuración"
-                >
-                  <Sliders size={20} />
-                </button>
-              )}
               <div className="flex items-center gap-2">
                 <Filter size={18} className="text-gray-400"/>
                 <span className="font-bold text-gray-700">Queries ({selectedQueries.size})</span>
@@ -340,7 +327,7 @@ const ReportDownloader: React.FC = () => {
             
             <button 
               onClick={toggleAll}
-              className="flex items-center gap-2 text-sm font-medium text-alquid-blue hover:bg-blue-50 px-3 py-1.5 rounded-lg transition-colors"
+              className="flex items-center gap-2 text-sm font-medium text-alquid-navy hover:bg-white px-3 py-1.5 rounded-lg transition-colors border border-transparent hover:border-gray-200"
             >
               {selectedQueries.size === getTotalQueries() && getTotalQueries() > 0 
                 ? <><CheckSquare size={16} /> Deseleccionar Todo</> 
@@ -350,22 +337,16 @@ const ReportDownloader: React.FC = () => {
           </div>
           
           {/* Query Table */}
-          <div className="flex-1 overflow-auto bg-gray-50">
+          <div className="flex-1 overflow-auto bg-alquid-gray25">
             {flatData.length === 0 ? (
               <div className="h-full flex flex-col items-center justify-center text-gray-400 p-8 text-center">
                 <Database size={48} className="mb-4 text-gray-300" />
                 <h3 className="text-lg font-semibold text-gray-600">No hay datos para mostrar</h3>
                 <p className="text-sm max-w-md mt-2">Carga el archivo <span className="font-mono bg-gray-100 px-1 rounded">queries.json</span> en el panel de configuración para ver la lista de informes disponibles.</p>
-                <button 
-                  onClick={() => setIsConfigOpen(true)} 
-                  className="mt-6 bg-white border border-gray-300 px-4 py-2 rounded-lg text-alquid-blue hover:bg-gray-50 shadow-sm text-sm font-semibold transition-all"
-                >
-                  Abrir Configuración
-                </button>
               </div>
             ) : (
               <table className="w-full text-left border-collapse">
-                <thead className="bg-gray-100 sticky top-0 z-10 shadow-sm">
+                <thead className="bg-alquid-gray10 sticky top-0 z-10 shadow-sm">
                   <tr>
                     <th className="py-3 px-4 w-12 text-center border-b border-gray-200">
                        <Square size={16} className="text-gray-400 mx-auto" />
@@ -398,7 +379,7 @@ const ReportDownloader: React.FC = () => {
                               type="checkbox"
                               checked={isSelected}
                               onChange={() => toggleQuery(item.id)}
-                              className="w-4 h-4 text-alquid-blue bg-white border-gray-300 rounded focus:ring-alquid-blue"
+                              className="w-4 h-4 text-alquid-navy bg-white border-gray-300 rounded focus:ring-alquid-navy"
                             />
                           </div>
                         </td>
@@ -408,7 +389,7 @@ const ReportDownloader: React.FC = () => {
                         <td className="py-3 px-4 text-sm text-gray-500">
                           {item.folder || <span className="text-gray-300 italic">-</span>}
                         </td>
-                        <td className="py-3 px-4 text-sm font-semibold text-gray-800 group-hover:text-alquid-blue transition-colors">
+                        <td className="py-3 px-4 text-sm font-semibold text-gray-800 group-hover:text-alquid-navy transition-colors">
                           {item.filenameOnly}
                         </td>
                          <td className="py-3 px-4 text-sm text-gray-600 font-medium">
@@ -423,7 +404,7 @@ const ReportDownloader: React.FC = () => {
                                <CheckCircle2 size={14} /> Válido
                              </span>
                            ) : (
-                             <span className="inline-flex items-start gap-1.5 text-xs font-medium text-red-600 leading-tight" title={validation.msg}>
+                             <span className="inline-flex items-start gap-1.5 text-xs font-medium text-alquid-orange leading-tight" title={validation.msg}>
                                <XCircle size={14} className="mt-0.5 flex-shrink-0" /> 
                                <span>{validation.msg}</span>
                              </span>
@@ -446,7 +427,7 @@ const ReportDownloader: React.FC = () => {
                   <span>{progress}%</span>
                 </div>
                 <div className="w-full bg-gray-100 rounded-full h-2 overflow-hidden">
-                  <div className="bg-gradient-to-r from-blue-500 to-indigo-600 h-2 rounded-full transition-all duration-300" style={{ width: `${progress}%` }}></div>
+                  <div className="bg-gradient-to-r from-alquid-navy to-alquid-blue h-2 rounded-full transition-all duration-300" style={{ width: `${progress}%` }}></div>
                 </div>
               </div>
             )}
@@ -454,10 +435,10 @@ const ReportDownloader: React.FC = () => {
             <button 
               onClick={runDownload}
               disabled={isProcessing || !downloadConfig.data || selectedQueries.size === 0}
-              className={`w-full py-4 rounded-xl font-bold text-white shadow-lg flex justify-center items-center gap-3 transition-all transform active:scale-[0.99]
+              className={`w-full py-4 rounded-xl font-medium text-white shadow-lg flex justify-center items-center gap-3 transition-all transform active:scale-[0.99]
                 ${isProcessing || !downloadConfig.data || selectedQueries.size === 0
                   ? 'bg-gray-300 cursor-not-allowed shadow-none' 
-                  : 'bg-alquid-red hover:bg-red-600 hover:shadow-xl hover:-translate-y-0.5'
+                  : 'bg-alquid-navy hover:bg-opacity-90 hover:shadow-xl hover:-translate-y-0.5'
                 }
               `}
             >

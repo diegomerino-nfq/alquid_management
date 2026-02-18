@@ -5,20 +5,27 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>ALQUID Data Tools</title>
     <script src="https://cdn.tailwindcss.com"></script>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Ubuntu:wght@300;400;500;700&display=swap" rel="stylesheet">
     <script>
       tailwind.config = {
         theme: {
           extend: {
             fontFamily: {
-              sans: ['Inter', 'sans-serif'],
+              sans: ['Ubuntu', 'sans-serif'],
               mono: ['Fira Code', 'Menlo', 'Monaco', 'Courier New', 'monospace'],
             },
             colors: {
               alquid: {
-                blue: '#00205B',
-                red: '#FF4F4F',
-                light: '#F3F4F6'
+                navy: '#110841',    // Color Primario
+                orange: '#EE2833',  // Color Secundario (Cadmium Orange corrected)
+                red: '#C5384C',     // Color Secundario (English Red)
+                blue: '#499CD9',    // Color Secundario (Carolina Blue)
+                
+                // Neutros
+                gray10: '#F5F9F9',
+                gray25: '#F6F8F6',
+                gray40: '#CDCDCD',
+                grayDark: '#383838'
               }
             }
           }
@@ -27,8 +34,9 @@
     </script>
     <style>
       body {
-        font-family: 'Inter', sans-serif;
-        background-color: #F9FAFB;
+        font-family: 'Ubuntu', sans-serif;
+        background-color: #F6F8F6; /* Grey 25% */
+        color: #383838; /* Grey 40% Dark */
       }
       /* Custom scrollbar for code editor */
       .code-editor-container textarea {

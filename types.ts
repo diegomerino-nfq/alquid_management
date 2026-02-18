@@ -1,3 +1,4 @@
+
 export interface QueryParam {
   value: string | number | string[];
   type?: string;
@@ -25,6 +26,18 @@ export interface AccessConfig {
 
 export type Region = "Colombia" | "Perú" | "Argentina" | "España" | "Suiza" | "New York";
 export type Environment = "PRE" | "PRO";
+
+// Repository Types
+export interface RepositoryFile {
+  id: string;
+  version: number;
+  fileName: string;
+  content: any; // The JSON content
+  uploadedAt: string;
+  uploadedBy: string; // Placeholder for user
+}
+
+export type RepositoryData = Record<string, Record<string, RepositoryFile[]>>;
 
 // Configuración estricta de bases de datos/proyectos por entorno
 export const EXPECTED_DATABASES: Record<string, Record<string, string[]>> = {

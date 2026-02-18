@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, ReactNode } from 'react';
-import { ReportDefinition } from '../types';
+import { ReportDefinition, RepositoryData, RepositoryFile } from '../types';
 
 // Define state structure for each page
 interface PageState<T> {
@@ -7,7 +7,21 @@ interface PageState<T> {
   fileName: string | null;
 }
 
+export interface LogEntry {
+  id: string;
+  timestamp: string;
+  module: 'SISTEMA' | 'DESCARGA' | 'EXTRACCIÓN' | 'EDITOR' | 'REPOSITORIO';
+  action: string;
+  details: string;
+  type: 'INFO' | 'SUCCESS' | 'WARNING' | 'ERROR';
+}
+
 interface GlobalState {
+  // User Activity Logs
+  userLogs: LogEntry[];
+  addLog: (module: LogEntry['module'], action: string, details: string, type?: LogEntry['type']) => void;
+  clearLogs: () => void;
+
   // Report Downloader State
   downloadReports: PageState<ReportDefinition[]>;
   downloadConfig: PageState<any>;
@@ -33,11 +47,33 @@ interface GlobalState {
   editorReports: PageState<ReportDefinition[]>;
   setEditorReports: (data: ReportDefinition[], fileName: string) => void;
   clearEditorReports: () => void;
+
+  // Repository State
+  repositoryData: RepositoryData;
+  addRepositoryFile: (region: string, env: string, content: any, fileName: string) => void;
 }
 
 const GlobalStateContext = createContext<GlobalState | undefined>(undefined);
 
 export const GlobalStateProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
+  // --- LOGGING STATE ---
+  const [userLogs, setUserLogs] = useState<LogEntry[]>([]);
+
+  const addLog = (module: LogEntry['module'], action: string, details: string, type: LogEntry['type'] = 'INFO') => {
+    const newLog: LogEntry = {
+      id: Date.now().toString() + Math.random().toString().slice(2, 5),
+      timestamp: new Date().toLocaleTimeString(),
+      module,
+      action,
+      details,
+      type
+    };
+    // Add to top of list
+    setUserLogs(prev => [newLog, ...prev]);
+  };
+
+  const clearLogs = () => setUserLogs([]);
+
   // --- DOWNLOADER STATE ---
   const [downloadReports, setDownloadReportsState] = useState<PageState<ReportDefinition[]>>({ data: [], fileName: null });
   const [downloadConfig, setDownloadConfigState] = useState<PageState<any>>({ data: null, fileName: null });
@@ -63,8 +99,45 @@ export const GlobalStateProvider: React.FC<{ children: ReactNode }> = ({ childre
   const setEditorReports = (data: ReportDefinition[], fileName: string) => setEditorReportsState({ data, fileName });
   const clearEditorReports = () => setEditorReportsState({ data: [], fileName: null });
 
+  // --- REPOSITORY STATE ---
+  // Initialize with empty arrays for standard regions to avoid undefined checks later
+  const initialRegions = ["Argentina", "Colombia", "España", "New York", "Perú", "Suiza"];
+  const initialRepoState: RepositoryData = {};
+  initialRegions.forEach(reg => {
+      initialRepoState[reg] = { "PRE": [], "PRO": [] };
+  });
+
+  const [repositoryData, setRepositoryData] = useState<RepositoryData>(initialRepoState);
+
+  const addRepositoryFile = (region: string, env: string, content: any, fileName: string) => {
+      setRepositoryData(prev => {
+          const newState = { ...prev };
+          if (!newState[region]) newState[region] = { "PRE": [], "PRO": [] };
+          if (!newState[region][env]) newState[region][env] = [];
+
+          const currentList = newState[region][env];
+          const newVersion = currentList.length + 1;
+
+          const newFile: RepositoryFile = {
+              id: Date.now().toString(),
+              version: newVersion,
+              fileName: fileName,
+              content: content,
+              uploadedAt: new Date().toLocaleString(),
+              uploadedBy: "Admin User"
+          };
+
+          // Add to beginning of array (newest first)
+          newState[region][env] = [newFile, ...currentList];
+          return newState;
+      });
+      addLog('REPOSITORIO', 'NUEVA_VERSION', `v${(repositoryData[region]?.[env]?.length || 0) + 1} subida a ${region} ${env}: ${fileName}`, 'SUCCESS');
+  };
+
   return (
     <GlobalStateContext.Provider value={{
+      userLogs, addLog, clearLogs,
+
       downloadReports, downloadConfig, downloadRegion, downloadEnv, downloadLoadId,
       setDownloadReports, setDownloadConfig, setDownloadRegion, setDownloadEnv, setDownloadLoadId,
       clearDownloadReports, clearDownloadConfig,
@@ -75,7 +148,10 @@ export const GlobalStateProvider: React.FC<{ children: ReactNode }> = ({ childre
 
       editorReports,
       setEditorReports,
-      clearEditorReports
+      clearEditorReports,
+
+      repositoryData,
+      addRepositoryFile
     }}>
       {children}
     </GlobalStateContext.Provider>

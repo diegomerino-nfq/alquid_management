@@ -10,7 +10,8 @@ const SqlExtractor: React.FC = () => {
   // Use Global State (Extractor Specific)
   const { 
     extractReports, setExtractReports, clearExtractReports,
-    extractLoadId, setExtractLoadId
+    extractLoadId, setExtractLoadId,
+    addLog // Adding logger
   } = useGlobalState();
 
   const [selectedQueries, setSelectedQueries] = useState<Set<string>>(new Set());
@@ -18,12 +19,15 @@ const SqlExtractor: React.FC = () => {
   const handleQueriesLoaded = (content: string, fileName: string) => {
     try {
       setExtractReports(JSON.parse(content), fileName);
+      addLog('EXTRACCIÓN', 'CARGA_ARCHIVO', `Queries JSON cargado: ${fileName}`, 'SUCCESS');
     } catch (e) {
       alert("JSON inválido");
+      addLog('EXTRACCIÓN', 'ERROR_CARGA', `Fallo al leer archivo: ${fileName}`, 'ERROR');
     }
   };
 
   const handleRemoveFile = () => {
+    addLog('EXTRACCIÓN', 'ELIMINAR_ARCHIVO', `Queries JSON eliminado: ${extractReports.fileName}`, 'INFO');
     clearExtractReports();
     setSelectedQueries(new Set());
   };
@@ -77,7 +81,10 @@ const SqlExtractor: React.FC = () => {
       });
     });
 
-    if (processedCount > 0) alert(`Se descargaron ${processedCount} archivos SQL.`);
+    if (processedCount > 0) {
+        addLog('EXTRACCIÓN', 'EXPORTAR_SQL', `Generados ${processedCount} archivos SQL. LoadID: ${extractLoadId || 'N/A'}`, 'SUCCESS');
+        alert(`Se descargaron ${processedCount} archivos SQL.`);
+    }
   };
 
   // Flatten data for table view
@@ -109,12 +116,12 @@ const SqlExtractor: React.FC = () => {
         icon={<Code size={20}/>}
        />
 
-       <div className="flex flex-col h-full bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+       <div className="flex flex-col h-full bg-white rounded-xl shadow-sm border border-alquid-gray40 border-opacity-40 overflow-hidden">
          {/* Top Controls */}
-         <div className="p-6 md:p-8 border-b border-gray-200 bg-white">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+         <div className="p-6 md:p-8 border-b border-alquid-gray40 border-opacity-40 bg-white">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-8 items-start">
                <FileInput 
-                 label="Cargar queries.json" 
+                 label="Cargar archivo de configuración .json" 
                  accept=".json" 
                  onFileLoaded={handleQueriesLoaded} 
                  onRemove={handleRemoveFile}
@@ -123,20 +130,23 @@ const SqlExtractor: React.FC = () => {
                />
                
                <div>
-                 <label className="block text-sm font-semibold text-gray-700 mb-2">Load ID</label>
-                 <input 
-                   type="text" 
-                   value={extractLoadId}
-                   onChange={(e) => setExtractLoadId(e.target.value)}
-                   placeholder="Seleccionar Load ID"
-                   className="w-full p-4 border border-gray-300 rounded-xl focus:ring-2 focus:ring-alquid-blue outline-none transition-shadow shadow-sm"
-                 />
+                 <label className="block text-sm font-semibold text-gray-700 mb-1.5">Load ID</label>
+                 {/* Styled to exactly match FileInput structure: border-2 + p-4 + content height matching icon wrapper */}
+                 <div className="border-2 border-gray-300 rounded-xl bg-white shadow-sm hover:border-alquid-blue transition-colors p-4 flex items-center">
+                    <input 
+                    type="text" 
+                    value={extractLoadId}
+                    onChange={(e) => setExtractLoadId(e.target.value)}
+                    placeholder="Seleccionar Load ID"
+                    className="w-full h-10 bg-transparent outline-none text-gray-800 placeholder-gray-400 font-medium"
+                    />
+                 </div>
                </div>
             </div>
          </div>
 
          {/* Toolbar */}
-         <div className="p-4 border-b border-gray-200 flex justify-between items-center bg-gray-50 flex-shrink-0">
+         <div className="p-4 border-b border-alquid-gray40 border-opacity-40 flex justify-between items-center bg-alquid-gray10 flex-shrink-0">
            <div className="flex items-center gap-2">
              <Filter size={18} className="text-gray-400"/>
              <span className="font-bold text-gray-700">Queries Disponibles ({selectedQueries.size})</span>
@@ -144,7 +154,7 @@ const SqlExtractor: React.FC = () => {
            
            <button 
              onClick={toggleAll}
-             className="flex items-center gap-2 text-sm font-medium text-alquid-blue hover:bg-blue-50 px-3 py-1.5 rounded-lg transition-colors"
+             className="flex items-center gap-2 text-sm font-medium text-alquid-navy hover:bg-white px-3 py-1.5 rounded-lg transition-colors border border-transparent hover:border-gray-200"
            >
              {selectedQueries.size === getTotalQueries() && getTotalQueries() > 0 
                ? <><CheckSquare size={16} /> Deseleccionar Todo</> 
@@ -154,7 +164,7 @@ const SqlExtractor: React.FC = () => {
          </div>
 
          {/* Table Content */}
-         <div className="flex-1 overflow-auto bg-gray-50">
+         <div className="flex-1 overflow-auto bg-alquid-gray25">
             {flatData.length === 0 ? (
                  <div className="h-full flex flex-col items-center justify-center text-gray-400 p-12">
                    <FileCode size={48} className="mx-auto mb-3 opacity-20" />
@@ -162,7 +172,7 @@ const SqlExtractor: React.FC = () => {
                  </div>
                ) : (
               <table className="w-full text-left border-collapse">
-                <thead className="bg-gray-100 sticky top-0 z-10 shadow-sm">
+                <thead className="bg-alquid-gray10 sticky top-0 z-10 shadow-sm">
                   <tr>
                     <th className="py-3 px-4 w-12 text-center border-b border-gray-200">
                        <Square size={16} className="text-gray-400 mx-auto" />
@@ -192,7 +202,7 @@ const SqlExtractor: React.FC = () => {
                               type="checkbox"
                               checked={isSelected}
                               onChange={() => toggleQuery(item.id)}
-                              className="w-4 h-4 text-alquid-blue bg-white border-gray-300 rounded focus:ring-alquid-blue"
+                              className="w-4 h-4 text-alquid-navy bg-white border-gray-300 rounded focus:ring-alquid-navy"
                             />
                           </div>
                         </td>
@@ -202,7 +212,7 @@ const SqlExtractor: React.FC = () => {
                         <td className="py-3 px-4 text-sm text-gray-500">
                           {item.folder || <span className="text-gray-300 italic">-</span>}
                         </td>
-                        <td className="py-3 px-4 text-sm font-semibold text-gray-800 group-hover:text-alquid-blue transition-colors">
+                        <td className="py-3 px-4 text-sm font-semibold text-gray-800 group-hover:text-alquid-navy transition-colors">
                           {item.filenameOnly}
                         </td>
                          <td className="py-3 px-4 text-sm text-gray-600 font-medium">
@@ -224,10 +234,10 @@ const SqlExtractor: React.FC = () => {
             <button 
                onClick={handleExport}
                disabled={selectedQueries.size === 0}
-               className={`w-full py-4 rounded-xl font-bold text-white shadow-lg flex justify-center items-center gap-3 transition-all transform active:scale-[0.99]
+               className={`w-full py-4 rounded-xl font-medium text-white shadow-lg flex justify-center items-center gap-3 transition-all transform active:scale-[0.99]
                  ${selectedQueries.size === 0
                    ? 'bg-gray-300 cursor-not-allowed shadow-none' 
-                   : 'bg-indigo-600 hover:bg-indigo-700 hover:shadow-xl'
+                   : 'bg-alquid-navy hover:bg-opacity-90 hover:shadow-xl'
                  }
                `}
              >

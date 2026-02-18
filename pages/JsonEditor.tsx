@@ -8,7 +8,7 @@ import { QueryDefinition, ReportDefinition } from '../types';
 import { formatSqlBonito } from '../utils/sqlFormatter';
 
 const JsonEditor: React.FC = () => {
-  const { editorReports, setEditorReports, clearEditorReports } = useGlobalState();
+  const { editorReports, setEditorReports, clearEditorReports, addLog } = useGlobalState();
   const [editingItem, setEditingItem] = useState<{ reportIndex: number, queryIndex: number, data: QueryDefinition } | null>(null);
   const [isNewQueryMode, setIsNewQueryMode] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(true); 
@@ -22,9 +22,16 @@ const JsonEditor: React.FC = () => {
   const handleLoaded = (content: string, fileName: string) => {
     try {
       setEditorReports(JSON.parse(content), fileName);
+      addLog('EDITOR', 'CARGA_ARCHIVO', `JSON base cargado: ${fileName}`, 'SUCCESS');
     } catch (e) {
       alert("JSON inválido");
+      addLog('EDITOR', 'ERROR_CARGA', `Fallo al leer JSON: ${fileName}`, 'ERROR');
     }
+  };
+
+  const handleClear = () => {
+    addLog('EDITOR', 'ELIMINAR_ARCHIVO', `JSON base eliminado: ${editorReports.fileName}`, 'INFO');
+    clearEditorReports();
   };
 
   const handleSaveJson = () => {
@@ -37,6 +44,8 @@ const JsonEditor: React.FC = () => {
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
+    
+    addLog('EDITOR', 'DESCARGA_JSON', `Archivo queries_updated.json generado y descargado con ${editorReports.data.reduce((acc, r) => acc + r.queries.length, 0)} queries.`, 'SUCCESS');
   };
 
   // Flatten data for table view
@@ -127,9 +136,11 @@ const JsonEditor: React.FC = () => {
 
         const newQuery = { ...editingItem.data, filename: newQueryFilename };
         newData[reportIdx].queries.push(newQuery);
+        addLog('EDITOR', 'CREAR_QUERY', `Nueva query creada: ${newQueryFilename} en reporte ${newQueryReport}`, 'SUCCESS');
 
     } else {
         newData[editingItem.reportIndex].queries[editingItem.queryIndex] = editingItem.data;
+        addLog('EDITOR', 'EDITAR_QUERY', `Query modificada: ${editingItem.data.filename}`, 'INFO');
     }
 
     setEditorReports(newData, editorReports.fileName || "queries_edited.json");
@@ -149,6 +160,7 @@ const JsonEditor: React.FC = () => {
             ...editingItem,
             data: { ...editingItem.data, sql: formatted }
         });
+        addLog('EDITOR', 'IMPORTAR_SQL', `Contenido SQL importado desde ${file.name}`, 'INFO');
     };
     reader.readAsText(file);
     e.target.value = ''; // Reset
@@ -402,15 +414,16 @@ const JsonEditor: React.FC = () => {
 
        {/* Main Content: File Load & Table */}
        <div className="flex-1 flex flex-col overflow-hidden bg-white rounded-xl shadow-sm border border-gray-200">
-          <div className="p-6 border-b border-gray-200 bg-white">
+          <div className="p-6 md:p-8 border-b border-gray-200 bg-white">
              <div className="flex flex-col md:flex-row gap-4 items-start md:items-end justify-between">
                 <div className="flex-1 w-full">
                     <FileInput 
-                        label="Cargar queries.json Base" 
+                        label="Cargar archivo de configuración .json" 
                         accept=".json" 
                         onFileLoaded={handleLoaded}
-                        onRemove={clearEditorReports}
+                        onRemove={handleClear}
                         initialFileName={editorReports.fileName}
+                        required // Added required prop
                     />
                 </div>
                 {editorReports.data.length > 0 && (
