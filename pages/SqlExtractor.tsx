@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useRef, useEffect } from 'react';
-import { FileCode, Database, Code, Square, CheckSquare, Filter, Search, X } from 'lucide-react';
+import { FileCode, Database, Code, Square, CheckSquare, Filter, Search, X, FileWarning, AlertTriangle } from 'lucide-react';
 import FileInput from '../components/FileInput';
 import PageHeader from '../components/PageHeader';
 import { QueryDefinition } from '../types';
@@ -16,6 +16,13 @@ const SqlExtractor: React.FC = () => {
 
   const [selectedQueries, setSelectedQueries] = useState<Set<string>>(new Set());
   
+  // Validation Error Modal State
+  const [validationError, setValidationError] = useState<{
+    isOpen: boolean;
+    fileName: string;
+    errors: string[];
+  }>({ isOpen: false, fileName: '', errors: [] });
+
   // Filtering State
   const [filters, setFilters] = useState<Record<string, Set<string>>>({});
   const [activeFilterColumn, setActiveFilterColumn] = useState<string | null>(null);
@@ -33,16 +40,61 @@ const SqlExtractor: React.FC = () => {
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
+  const validateJsonStructure = (json: any): string[] => {
+      const errors: string[] = [];
+      if (!Array.isArray(json)) {
+          return ["El archivo raíz debe ser un Array de reportes (ej. [{ report: '...', queries: [...] }])"];
+      }
+
+      json.forEach((repo: any, i: number) => {
+          const idx = i + 1;
+          if (!repo.report || typeof repo.report !== 'string') {
+              errors.push(`Ítem #${idx}: Falta la propiedad obligatoria 'report' (string).`);
+          }
+          if (!repo.queries || !Array.isArray(repo.queries)) {
+              const repName = repo.report || `Item #${idx}`;
+              errors.push(`Reporte '${repName}': Falta la propiedad 'queries' o no es un array.`);
+          } else {
+              repo.queries.forEach((q: any, j: number) => {
+                  const qIdx = j + 1;
+                  const qId = `Query #${qIdx} en '${repo.report}'`;
+                  if (!q.filename) errors.push(`${qId}: Falta 'filename'.`);
+                  if (!q.sql) errors.push(`${qId}: Falta código 'sql'.`);
+                  // SQL Extractor might be less strict about database/table, but ideally should have them
+              });
+          }
+      });
+      return errors;
+  };
 
   const handleQueriesLoaded = (content: string, fileName: string) => {
     try {
       const json = JSON.parse(content);
-      if (!Array.isArray(json)) throw new Error("Formato incorrecto");
+      
+      const structureErrors = validateJsonStructure(json);
+      
+      if (structureErrors.length > 0) {
+          setValidationError({
+              isOpen: true,
+              fileName: fileName,
+              errors: structureErrors
+          });
+          addLog('EXTRACCIÓN', 'ERROR_VALIDACION', `El archivo ${fileName} tiene una estructura inválida.`, 'ERROR');
+          throw new Error("Estructura JSON inválida");
+      }
+
       setExtractReports(json, fileName);
       addLog('EXTRACCIÓN', 'CARGA_ARCHIVO', `Queries JSON cargado: ${fileName}`, 'SUCCESS');
-    } catch (e) {
-      alert("JSON inválido");
-      addLog('EXTRACCIÓN', 'ERROR_CARGA', `Fallo al leer archivo: ${fileName}`, 'ERROR');
+    } catch (e: any) {
+      if (e.message !== "Estructura JSON inválida") {
+          setValidationError({
+              isOpen: true,
+              fileName: fileName,
+              errors: ["El archivo no es un JSON válido (Error de sintaxis).", e.message]
+          });
+          addLog('EXTRACCIÓN', 'ERROR_CARGA', `Fallo al leer archivo: ${fileName}`, 'ERROR');
+      }
+      throw e;
     }
   };
 
@@ -260,12 +312,52 @@ const SqlExtractor: React.FC = () => {
   };
 
   return (
-    <div className="h-full flex flex-col animate-fade-in w-full">
+    <div className="h-full flex flex-col animate-fade-in w-full relative">
        <PageHeader 
         title="Extracción SQL" 
         subtitle="Genera scripts SQL limpios para producción"
         icon={<Code size={20}/>}
        />
+
+        {/* ERROR MODAL */}
+        {validationError.isOpen && (
+            <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
+                <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg flex flex-col animate-fade-in border border-red-200 overflow-hidden">
+                    <div className="bg-red-50 p-6 border-b border-red-100 flex items-center gap-4">
+                        <div className="p-3 bg-red-100 text-red-600 rounded-full shrink-0">
+                            <FileWarning size={32} />
+                        </div>
+                        <div>
+                            <h3 className="text-xl font-bold text-red-800">Estructura JSON Inválida</h3>
+                            <p className="text-sm text-red-600 mt-1">El archivo <strong>{validationError.fileName}</strong> no cumple con el formato requerido.</p>
+                        </div>
+                    </div>
+                    
+                    <div className="p-6 flex-1 overflow-y-auto max-h-[50vh] bg-white">
+                        <p className="text-sm text-gray-600 mb-4">
+                            Se han detectado los siguientes errores críticos que impiden la carga del archivo. Por favor, corrígelos e intenta nuevamente.
+                        </p>
+                        <ul className="space-y-2">
+                            {validationError.errors.map((err, idx) => (
+                                <li key={idx} className="flex items-start gap-2 text-xs text-gray-700 bg-red-50/50 p-2 rounded border border-red-100">
+                                    <AlertTriangle size={14} className="text-red-500 shrink-0 mt-0.5" />
+                                    <span>{err}</span>
+                                </li>
+                            ))}
+                        </ul>
+                    </div>
+
+                    <div className="p-4 bg-gray-50 border-t border-gray-200 flex justify-end">
+                        <button 
+                            onClick={() => setValidationError({ isOpen: false, fileName: '', errors: [] })}
+                            className="px-6 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg font-bold text-sm shadow-md transition-all hover:translate-y-px"
+                        >
+                            Entendido, cerrar
+                        </button>
+                    </div>
+                </div>
+            </div>
+        )}
 
        <div className="flex flex-1 gap-6 h-full relative overflow-hidden mt-6">
         

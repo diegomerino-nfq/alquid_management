@@ -1,9 +1,9 @@
 import React from 'react';
-import { BookOpen, FileText, Presentation, Download, Database, FileJson, Archive, Activity, Settings, ChevronRight, Info, AlertTriangle, CheckCircle, Search, LayoutTemplate, MousePointerClick, Table, Terminal, GitBranch, PlayCircle, Eye } from 'lucide-react';
+import { BookOpen, FileText, Presentation, Download, Database, FileJson, Archive, Settings, ChevronRight, Info, AlertTriangle, CheckCircle, Search, LayoutTemplate, MousePointerClick, PlayCircle } from 'lucide-react';
 import PageHeader from '../components/PageHeader';
 import PptxGenJS from 'pptxgenjs';
 
-// --- MOCK UI COMPONENTS (Para visualizar la herramienta sin capturas de imagen) ---
+// --- MOCK UI COMPONENTS (Wireframes de alta fidelidad) ---
 
 const MockWindow = ({ children, title }: { children?: React.ReactNode, title: string }) => (
     <div className="bg-white rounded-lg shadow-md border border-gray-200 overflow-hidden my-6 font-sans select-none transform transition-transform hover:scale-[1.01] duration-300">
@@ -27,7 +27,7 @@ const DownloaderMock = () => (
                 <div className="h-6 w-full bg-blue-50 border border-blue-200 rounded text-[10px] flex items-center px-2 text-blue-700 font-bold">España</div>
                 <div className="h-6 w-full bg-blue-50 border border-blue-200 rounded text-[10px] flex items-center px-2 text-blue-700 font-bold">PRO</div>
                 <div className="h-2 w-12 bg-gray-200 rounded mt-2"></div>
-                <div className="h-6 w-full border border-gray-300 rounded text-[10px] flex items-center px-2 text-gray-400">20231231_CIERRE</div>
+                <div className="h-6 w-full border border-gray-300 rounded text-[10px] flex items-center px-2 text-gray-400 font-mono">202312</div>
             </div>
             <div className="flex-1 bg-white border border-gray-200 rounded overflow-hidden">
                 <div className="bg-gray-100 p-2 border-b flex gap-2">
@@ -35,7 +35,7 @@ const DownloaderMock = () => (
                     <div className="h-4 w-20 bg-gray-200 rounded"></div>
                 </div>
                 <div className="p-2 space-y-2">
-                    {[1, 2, 3].map(i => (
+                    {[1, 2].map(i => (
                         <div key={i} className="flex items-center gap-2">
                             <div className="w-4 h-4 bg-blue-500 border-blue-600 border rounded flex items-center justify-center"><CheckCircle size={10} className="text-white"/></div>
                             <div className="flex-1 h-4 bg-gray-100 rounded flex items-center px-2 text-[10px] text-gray-500 font-mono">report_finance_0{i}.sql</div>
@@ -125,75 +125,119 @@ const Documentation: React.FC = () => {
       id: 'intro',
       title: '1. Introducción y Propósito',
       icon: <BookOpen size={20} />,
-      content: `ALQUID Data Tools es la suite oficial diseñada para estandarizar y asegurar el ciclo de vida del dato dentro de la organización.
+      content: `ALQUID Data Tools es la suite oficial para la gestión del ciclo de vida del dato.
       
-      Esta plataforma centraliza herramientas que anteriormente estaban dispersas (scripts manuales, validaciones en Excel, correos electrónicos), proporcionando un entorno web seguro, validado y versionado.
+      Esta sección detalla de forma exhaustiva cada funcionalidad. La herramienta se divide en 4 pilares fundamentales diseñados para cubrir las necesidades de Analistas, Ingenieros de Datos y Gestores de Gobierno.
 
-      **Objetivos Principales:**
-      - **Seguridad:** Eliminar la manipulación manual de archivos SQL sensibles.
-      - **Estandarización:** Asegurar que todas las queries cumplan con los formatos de *naming convention* y *coding style*.
-      - **Trazabilidad:** Registrar quién descargó qué y cuándo (Log de Actividad).
-      - **Versionado:** Mantener un historial inmutable de las configuraciones por entorno (Repositorio).`,
+      **Conceptos Transversales:**
+      - **Load ID:** Identificador único de carga (ej. '20231231'). Es fundamental en todas las herramientas ya que se inyecta dinámicamente en el SQL para filtrar particiones.
+      - **Validación Estricta:** La herramienta contiene un mapa duro de bases de datos permitidas por región. Si intentas ejecutar una query de "Argentina" contra un entorno de "España", el sistema bloqueará la acción.
+      - **Placeholders:** Usamos \`%s.%s\` para referirnos a \`database.table\` y \`:parametro\` para valores dinámicos.`,
       mock: null
     },
     {
       id: 'downloader',
-      title: '2. Descarga de Informes',
+      title: '2. Descarga de Informes (Detalle)',
       icon: <Settings size={20} />,
-      content: `Este módulo es la herramienta principal para usuarios de negocio y analistas que necesitan extraer datos procesados.
+      content: `Herramienta de ejecución directa para usuarios de negocio.
 
-      **Flujo de Trabajo:**
-      1. **Selección de Entorno:** El usuario debe seleccionar obligatoriamente una **Región** (ej. España, Latam) y un **Entorno** (PRE/PRO). Esto carga las reglas de validación específicas para esa combinación.
-      2. **Load ID:** Campo obligatorio. Se inyecta dinámicamente en las queries SQL reemplazando la variable \`:load_id\`.
-      3. **Carga de Archivos:** Arrastra o selecciona tus archivos JSON de configuración.
-      4. **Validación Automática:** Observa la columna "Validación". Si aparece en verde, la query es segura. Si está en rojo, revisa el mensaje de error (tabla incorrecta o BD no permitida).
+      **Panel Lateral (Configuración):**
+      - **FileInput (Queries):** Carga el archivo JSON con la lógica de negocio. Debe cumplir la estructura \`[{ report: string, queries: [] }]\`.
+      - **Select (Región):** Filtro geográfico (ej. España, Latam). Al cambiarlo, se carga la "Allowlist" de bases de datos permitidas.
+      - **Select (Entorno):** Alterna entre PRE (Preproducción) y PRO (Producción).
+      - **Input (Load ID):** Valor alfanumérico que reemplazará a \`:load_id\` en todas las queries. *Campo obligatorio*.
+
+      **Tabla Principal:**
+      - **Columna Validación:** Muestra un *badge* verde o rojo.
+        - *Verde:* La base de datos definida en el JSON coincide con la permitida para la Región/Entorno seleccionados.
+        - *Rojo:* Error de seguridad. La query intenta acceder a una tabla no autorizada o fuera del ámbito geográfico.
+      - **Botón Filtro (Embudo):** Presente en cada cabecera. Permite buscar texto o seleccionar valores únicos para filtrar la lista visible.
+      - **Botón "Seleccionar Visibles":** Marca todas las queries que están actualmente filtradas en la tabla. Útil para descargas masivas por lotes.
 
       **Ejecución:**
-      - Selecciona las queries deseadas y pulsa "EJECUTAR DESCARGA". El sistema generará y descargará los CSVs secuencialmente.`,
+      - **Botón "EJECUTAR DESCARGA":** Inicia un proceso asíncrono.
+        1. Valida la query.
+        2. Inyecta el Load ID.
+        3. Simula la ejecución (en este entorno web).
+        4. Genera un archivo CSV con nombre sanitizado (reemplaza \`/\` por \`_\`).`,
       mock: <DownloaderMock />
     },
     {
       id: 'extractor',
-      title: '3. Extracción SQL para Producción',
+      title: '3. Extracción SQL (Detalle)',
       icon: <Database size={20} />,
-      content: `Módulo técnico dirigido a ingenieros de datos y DBAs. Su función es convertir las definiciones JSON (utilizadas por la app) en scripts SQL puros (.sql) ejecutables en bases de datos (Spark, Hive, Snowflake, etc.).
+      content: `Generador de código para despliegues en producción (CI/CD). A diferencia del descargador, este módulo no ejecuta la query, solo genera el archivo \`.sql\`.
 
-      **Características Técnicas:**
-      - **Pretty Print SQL:** El sistema formatea automáticamente el código, indentando cláusulas y alineando JOINS.
-      - **Inyección de Variables:** Reemplaza los placeholders \`%s.%s\` por el esquema y tabla reales definidos en el JSON.
-      - **Resolución de Parámetros:** Los valores definidos en el JSON (fechas, listas) se inyectan en el SQL final.
+      **Funcionalidades Específicas:**
+      - **Inyección de Esquemas:** El sistema lee las propiedades \`database\` y \`table\` del JSON y reemplaza los símbolos \`%s.%s\` en el código SQL original.
+      - **Pretty Print:** Formateo automático utilizando reglas de indentación estándar (2 espacios, mayúsculas para keywords).
       
-      **Uso:**
-      Selecciona las queries y pulsa "GENERAR Y DESCARGAR SQL". Obtendrás archivos .sql listos para desplegar.`,
+      **Resolución de Parámetros:**
+      Si el JSON define:
+      \`"parameters": { "divisa": { "value": "EUR" } }\`
+      Y el SQL contiene:
+      \`WHERE currency = :divisa\`
+      El resultado será:
+      \`WHERE currency = 'EUR'\`
+
+      **Listas:** Si el parámetro es una lista \`['A', 'B']\`, se transformará en \`'A', 'B'\` para usarse dentro de cláusulas \`IN (...)\`.
+
+      **Botón "GENERAR Y DESCARGAR SQL":**
+      Descarga un archivo \`.sql\` individual por cada query seleccionada. El navegador puede pedir confirmación para descargas múltiples la primera vez.`,
       mock: <ExtractorMock />
     },
     {
       id: 'editor',
-      title: '4. Editor JSON Avanzado',
+      title: '4. Editor JSON (Detalle)',
       icon: <FileJson size={20} />,
-      content: `Entorno de desarrollo integrado (IDE) ligero para el mantenimiento de los archivos de configuración \`queries.json\`.
+      content: `IDE completo para la manipulación de archivos \`queries.json\`.
 
-      **Funcionalidades de Edición:**
-      - **Editor de Código:** Resaltado de sintaxis SQL.
-      - **Formateo Automático:** Botón "Varita Mágica" para limpiar el código.
-      - **Gestión de Parámetros:** Panel lateral para añadir parámetros dinámicos sin riesgo de romper el formato JSON.
+      **Operaciones de Tabla:**
+      - **Renombrar (Lápiz):**
+        - *En columna Reporte:* Renombra la agrupación lógica de queries.
+        - *En columna Informe:* Renombra el archivo de salida y la carpeta virtual.
+      - **Eliminar (Papelera):** Permite borrar una query individual o un reporte completo (con confirmación).
+
+      **Modal de Edición (El corazón de la herramienta):**
+      - **Editor de Código:** Área de texto con resaltado de sintaxis SQL. Soporta coloreado de keywords, strings y números.
+      - **Botón "Varita Mágica" (Formatear):** Aplica el algoritmo de *Pretty Print* al SQL actual para mejorar la legibilidad.
+      - **Botón "Pantalla Completa":** Maximiza el área de trabajo para queries complejas.
       
-      **Importación Inteligente:**
-      Puedes cargar un archivo \`.sql\` existente y el editor detectará automáticamente la base de datos y la tabla analizando la cláusula \`FROM\`.`,
+      **Importación Inteligente (.SQL):**
+      Al usar "Cargar .SQL" dentro del modal, el sistema utiliza Expresiones Regulares (Regex) para analizar la cláusula \`FROM\`.
+      - Detecta patrones \`FROM db.schema.table\` o \`FROM schema.table\`.
+      - Rellena automáticamente los campos Database, Schema y Table.
+      - Reemplaza la referencia en el SQL por \`%s.%s\` para mantener la flexibilidad.
+
+      **Gestión de Parámetros:**
+      - Permite añadir pares Clave-Valor.
+      - Detecta automáticamente si el valor es un Array JSON (ej. \`["A", "B"]\`) y lo trata como lista en la generación SQL.`,
       mock: <EditorMock />
     },
     {
       id: 'repository',
-      title: '5. Repositorio Centralizado',
+      title: '5. Repositorio (Detalle)',
       icon: <Archive size={20} />,
-      content: `Sistema de control de versiones simplificado para la gestión de configuraciones.
+      content: `Sistema de control de versiones (VCS) simplificado y centralizado.
 
-      **Estructura Jerárquica:**
-      Organizado por Región > Entorno (PRE/PRO).
+      **Navegación:**
+      - **Nivel 1 (Regiones):** Tarjetas con banderas. Muestra el conteo total de archivos.
+      - **Nivel 2 (Entornos):** Selección entre PRE y PRO.
+      - **Nivel 3 (Listado):** Tabla de versiones ordenadas cronológicamente (la más reciente arriba).
 
-      **Control de Versiones:**
-      - Cada subida genera una nueva versión (v1, v2...) automáticamente.
-      - **Comparador (Diff):** Selecciona dos versiones para ver qué ha cambiado. El sistema resaltará en verde lo nuevo y en rojo lo eliminado, e incluso mostrará diferencias línea a línea en el código SQL.`,
+      **Subida de Archivos (Upload):**
+      - Al seleccionar un archivo JSON, se ejecuta una **Validación Previa**.
+      - El sistema comprueba *cada query* del archivo contra la matriz de seguridad \`EXPECTED_DATABASES\`.
+      - Si una sola query apunta a una BD incorrecta (ej. apuntar a PRO desde PRE), la subida se bloquea y se muestra un informe de errores detallado.
+      - Si es válido, se asigna automáticamente el número de versión siguiente (v+1).
+
+      **Comparador de Versiones (Diff):**
+      - Selecciona dos checkboxes en la lista de archivos.
+      - Pulsa el botón "Comparar".
+      - **Visualización:**
+        - *Verde:* Queries nuevas o código añadido.
+        - *Rojo:* Queries eliminadas o código borrado.
+        - *Amarillo:* Queries modificadas. Se muestra un detalle campo por campo (si cambió la tabla) o un diff línea a línea del SQL.`,
       mock: <RepositoryMock />
     }
   ];
@@ -361,22 +405,22 @@ const Documentation: React.FC = () => {
         let yPos = 1.8;
         // Párrafo introductorio (primeras 2 líneas max)
         if (cleanText.length > 0) {
-            slide.addText(cleanText.slice(0, 2).join(' '), { 
-                x: 0.6, y: yPos, w: 6.0, fontSize: 12, color: '444444', align: 'justify' 
+            slide.addText(cleanText.slice(0, 3).join(' '), { 
+                x: 0.6, y: yPos, w: 6.0, fontSize: 11, color: '444444', align: 'justify' 
             });
             yPos += 1.2;
         }
 
         // Bullets (Puntos Clave)
         if (bulletPoints.length > 0) {
-            slide.addText('Puntos Clave:', { x: 0.6, y: yPos, fontSize: 11, color: '110841', bold: true });
+            slide.addText('Funcionalidades Clave:', { x: 0.6, y: yPos, fontSize: 11, color: '110841', bold: true });
             yPos += 0.3;
-            bulletPoints.slice(0, 5).forEach(bp => {
+            bulletPoints.slice(0, 7).forEach(bp => {
                 slide.addText(bp, { 
-                    x: 0.6, y: yPos, w: 6.0, fontSize: 11, color: '555555', 
-                    bullet: { type: 'number', color: 'EE2833' }, paraSpaceAfter: 6
+                    x: 0.6, y: yPos, w: 6.0, fontSize: 10, color: '555555', 
+                    bullet: { type: 'number', color: 'EE2833' }, paraSpaceAfter: 4
                 });
-                yPos += 0.5;
+                yPos += 0.45;
             });
         }
 
