@@ -1,11 +1,24 @@
-import React, { useState } from 'react';
-import { NavLink, useLocation } from 'react-router-dom';
-import { Database, Download, FileJson, Home, Menu, X, Bell, User, Search, ChevronLeft, ChevronRight, Activity, Archive } from 'lucide-react';
+import React, { useState, useRef, useEffect } from 'react';
+import { NavLink, useLocation, useNavigate } from 'react-router-dom';
+import { Database, Download, FileJson, Home, Menu, X, Bell, User, ChevronLeft, ChevronRight, Activity, Archive, Clock, CheckCircle2, AlertCircle, Info, XCircle } from 'lucide-react';
+import { useGlobalState } from '../context/GlobalStateContext';
 
 const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
+  const [showNotifications, setShowNotifications] = useState(false);
+  
+  // State to track read notifications
+  const [readCount, setReadCount] = useState(0);
+  
+  const notifRef = useRef<HTMLDivElement>(null);
+  
+  const { userLogs } = useGlobalState();
   const location = useLocation();
+  const navigate = useNavigate();
+
+  // Calculate unread status
+  const hasUnread = userLogs.length > readCount;
 
   const navItems = [
     { name: 'Inicio', path: '/', icon: <Home size={20} /> },
@@ -15,6 +28,39 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
     { name: 'Repositorio', path: '/repository', icon: <Archive size={20} /> },
     { name: 'Actividad', path: '/activity', icon: <Activity size={20} /> },
   ];
+
+  // Close notifications when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (notifRef.current && !notifRef.current.contains(event.target as Node)) {
+        setShowNotifications(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  const handleToggleNotifications = () => {
+      if (!showNotifications) {
+          // If opening, mark all current as read
+          setReadCount(userLogs.length);
+      }
+      setShowNotifications(!showNotifications);
+  };
+
+  const getLogIcon = (type: string) => {
+    switch (type) {
+      case 'SUCCESS': return <CheckCircle2 size={14} className="text-green-500" />;
+      case 'ERROR': return <XCircle size={14} className="text-red-500" />;
+      case 'WARNING': return <AlertCircle size={14} className="text-yellow-500" />;
+      default: return <Info size={14} className="text-blue-500" />;
+    }
+  };
+
+  const handleViewAllActivity = () => {
+    setShowNotifications(false);
+    navigate('/activity');
+  };
 
   return (
     <div className="h-screen bg-alquid-gray25 flex font-sans text-alquid-grayDark overflow-hidden">
@@ -138,21 +184,66 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
           </div>
 
           <div className="flex items-center gap-5">
-            {/* Search Bar */}
-            <div className="hidden md:flex items-center bg-alquid-gray10 hover:bg-white rounded-full px-4 py-2 border border-transparent focus-within:border-alquid-blue focus-within:bg-white focus-within:shadow-sm transition-all duration-300 w-64">
-              <Search size={16} className="text-gray-400" />
-              <input 
-                type="text" 
-                placeholder="Buscar reporte..." 
-                className="bg-transparent border-none outline-none text-sm ml-2 w-full text-gray-600 placeholder-gray-400"
-              />
-            </div>
+            {/* Search Bar Removed as requested */}
 
             <div className="flex items-center gap-3">
-                <button className="w-10 h-10 rounded-full hover:bg-alquid-gray10 flex items-center justify-center text-gray-500 hover:text-alquid-navy transition-colors relative">
-                    <Bell size={20} />
-                    <span className="absolute top-2 right-2 w-2 h-2 bg-alquid-orange rounded-full border-2 border-white"></span>
-                </button>
+                {/* Notification Bell with Dropdown */}
+                <div className="relative" ref={notifRef}>
+                    <button 
+                        onClick={handleToggleNotifications}
+                        className={`w-10 h-10 rounded-full flex items-center justify-center transition-colors relative ${showNotifications ? 'bg-alquid-gray10 text-alquid-navy' : 'text-gray-500 hover:bg-alquid-gray10 hover:text-alquid-navy'}`}
+                    >
+                        <Bell size={20} />
+                        {hasUnread && (
+                            <span className="absolute top-2 right-2 w-2 h-2 bg-alquid-orange rounded-full border-2 border-white animate-pulse"></span>
+                        )}
+                    </button>
+
+                    {/* Notification Dropdown */}
+                    {showNotifications && (
+                        <div className="absolute right-0 top-full mt-2 w-80 bg-white rounded-xl shadow-2xl border border-gray-100 overflow-hidden animate-fade-in z-50">
+                            <div className="px-4 py-3 border-b border-gray-50 bg-gray-50/50 flex justify-between items-center">
+                                <h3 className="font-bold text-sm text-gray-700">Última Actividad</h3>
+                                <span className="text-[10px] text-gray-400 bg-white border px-2 py-0.5 rounded-full">{userLogs.length} eventos</span>
+                            </div>
+                            <div className="max-h-80 overflow-y-auto">
+                                {userLogs.length === 0 ? (
+                                    <div className="p-6 text-center text-gray-400 text-sm">
+                                        No hay notificaciones recientes
+                                    </div>
+                                ) : (
+                                    <div className="divide-y divide-gray-50">
+                                        {userLogs.slice(0, 5).map((log) => (
+                                            <div key={log.id} className="p-4 hover:bg-blue-50/50 transition-colors">
+                                                <div className="flex items-start gap-3">
+                                                    <div className="mt-0.5">{getLogIcon(log.type)}</div>
+                                                    <div className="flex-1 min-w-0">
+                                                        <p className="text-sm font-semibold text-gray-800 truncate">{log.action}</p>
+                                                        <p className="text-xs text-gray-500 truncate">{log.details}</p>
+                                                        <div className="flex items-center gap-2 mt-1.5">
+                                                            <span className="text-[10px] text-gray-400 font-mono flex items-center gap-1">
+                                                                <Clock size={10} /> {log.timestamp}
+                                                            </span>
+                                                            <span className="text-[10px] font-bold text-gray-300 px-1.5 py-0.5 rounded bg-gray-100">{log.module}</span>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        ))}
+                                    </div>
+                                )}
+                            </div>
+                            <div className="p-2 bg-gray-50 border-t border-gray-100">
+                                <button 
+                                    onClick={handleViewAllActivity}
+                                    className="w-full py-2 text-xs font-bold text-alquid-blue hover:bg-white hover:shadow-sm rounded-lg transition-all"
+                                >
+                                    Ver toda la actividad
+                                </button>
+                            </div>
+                        </div>
+                    )}
+                </div>
                 
                 <div className="h-8 w-px bg-gray-200 mx-1 hidden md:block"></div>
                 

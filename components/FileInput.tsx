@@ -16,11 +16,8 @@ const FileInput: React.FC<FileInputProps> = ({ label, accept, onFileLoaded, onRe
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    if (initialFileName) {
-      setFileName(initialFileName);
-    } else {
-      setFileName(null);
-    }
+    setFileName(initialFileName || null);
+    if (initialFileName) setError(null);
   }, [initialFileName]);
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -31,15 +28,20 @@ const FileInput: React.FC<FileInputProps> = ({ label, accept, onFileLoaded, onRe
     reader.onload = (event) => {
       try {
         const content = event.target?.result as string;
+        // Invoke parent callback. If parent validation fails, it should throw an error.
         onFileLoaded(content, file.name);
+        
+        // If successful
         setFileName(file.name);
         setError(null);
-      } catch (err) {
-        setError("Error leyendo el archivo");
+      } catch (err: any) {
+        console.error("File input error:", err);
+        setError(err.message || "Error procesando el archivo");
+        setFileName(null);
       }
     };
     reader.readAsText(file);
-    // Reset input value to allow re-selecting the same file if needed after removal
+    // Reset value to allow re-uploading the same file if needed
     e.target.value = '';
   };
 
@@ -66,6 +68,7 @@ const FileInput: React.FC<FileInputProps> = ({ label, accept, onFileLoaded, onRe
               : 'border-dashed border-gray-300 bg-gray-50 hover:border-alquid-blue hover:bg-blue-50 cursor-pointer'
           }
         `}
+        title={fileName || undefined}
       >
         <input 
           type="file" 

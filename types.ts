@@ -39,23 +39,47 @@ export interface RepositoryFile {
 
 export type RepositoryData = Record<string, Record<string, RepositoryFile[]>>;
 
-// Configuración estricta de bases de datos/proyectos por entorno
+// Configuración estricta de bases de datos/proyectos por entorno basada en la tabla proporcionada
 export const EXPECTED_DATABASES: Record<string, Record<string, string[]>> = {
   "Argentina": {
-    "PRE": ["pre_bbva_argenti_alquid_archive_xua", "pre_bbva_argenti_alquid_xua"],
-    "PRO": ["pro_bbva_argenti_alquid_archive_qxw", "pro_bbva_argenti_alquid_qxw"]
+    "PRE": [
+      "pre_bbva_argenti_alquid_archive_xua", 
+      "pre_bbva_argenti_alquid_xua"
+    ],
+    "PRO": [
+      "pro_bbva_argenti_alquid_archive_qxw", 
+      "pro_bbva_argenti_alquid_qxw"
+    ]
   },
   "Colombia": {
-    "PRE": ["pre_bbva_colombia_alquid", "pre_bbva_colombia_aqluid_archive"], // Nota: 'aqluid' según imagen
-    "PRO": ["pro_bbva_colombia_alquid_3", "pro_bbva_colombia_alquid_archive"]
+    "PRE": [
+      "pre_bbva_colombia_alquid", 
+      "pre_bbva_colombia_aqluid_archive" // Nota: Mantenido 'aqluid' según especificación
+    ],
+    "PRO": [
+      "pro_bbva_colombia_alquid_3", 
+      "pro_bbva_colombia_alquid_archive"
+    ]
   },
   "New York": {
-    "PRE": ["pre_bbva_ny_alquid_archive_olm", "pre_bbva_ny_alquid_olm"],
-    "PRO": ["pro_bbva_ny_alquid_archive_qjh", "pro_bbva_ny_alquid_qjh"]
+    "PRE": [
+      "pre_bbva_ny_alquid_archive_olm", 
+      "pre_bbva_ny_alquid_olm"
+    ],
+    "PRO": [
+      "pro_bbva_ny_alquid_archive_qjh", 
+      "pro_bbva_ny_alquid_qjh"
+    ]
   },
   "Perú": {
-    "PRE": ["pre_bbva_peru_alquid", "pre_bbva_peru_alquid_archive"],
-    "PRO": ["pro_bbva_peru_alquid", "pro_bbva_peru_alquid_archive"]
+    "PRE": [
+      "pre_bbva_peru_alquid", 
+      "pre_bbva_peru_alquid_archive"
+    ],
+    "PRO": [
+      "pro_bbva_peru_alquid", 
+      "pro_bbva_peru_alquid_archive"
+    ]
   },
   "Suiza": {
     "PRE": ["sol-pre-suiza-alquid-gc"],

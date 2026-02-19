@@ -88,29 +88,29 @@ const ActivityLog: React.FC = () => {
                 <tbody className="divide-y divide-gray-100">
                 {userLogs.map((log, index) => (
                     <tr key={log.id} ref={index === 0 ? topLogRef : null} className="hover:bg-blue-50/50 transition-colors group animate-fade-in">
-                    <td className="px-6 py-3.5 whitespace-nowrap">
+                    <td className="px-6 py-3.5 whitespace-nowrap align-top">
                         <div className="flex items-center gap-2 text-gray-500 font-mono text-xs">
                         <Clock size={12} className="text-gray-300 group-hover:text-alquid-blue transition-colors" />
                         {log.timestamp}
                         </div>
                     </td>
-                    <td className="px-6 py-3.5 whitespace-nowrap">
+                    <td className="px-6 py-3.5 whitespace-nowrap align-top">
                         <span className="flex items-center gap-2 text-xs font-bold text-gray-700 bg-gray-100 px-2 py-1 rounded border border-gray-200">
                             {getModuleIcon(log.module)}
                             {log.module}
                         </span>
                     </td>
-                    <td className="px-6 py-3.5 whitespace-nowrap">
+                    <td className="px-6 py-3.5 whitespace-nowrap align-top">
                         <span className="text-xs font-bold text-gray-800 tracking-tight">
                         {log.action}
                         </span>
                     </td>
-                    <td className="px-6 py-3.5">
-                        <p className="text-sm text-gray-600 font-mono leading-relaxed truncate max-w-xl">
+                    <td className="px-6 py-3.5 align-top">
+                        <p className="text-sm text-gray-600 font-mono leading-relaxed break-words whitespace-pre-wrap">
                         {log.details}
                         </p>
                     </td>
-                    <td className="px-6 py-3.5 whitespace-nowrap text-center">
+                    <td className="px-6 py-3.5 whitespace-nowrap text-center align-top">
                         <span className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-bold border uppercase tracking-wider ${getStatusStyle(log.type)}`}>
                         {getIcon(log.type)}
                         {log.type}
