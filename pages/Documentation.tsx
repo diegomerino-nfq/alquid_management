@@ -131,7 +131,7 @@ const Documentation: React.FC = () => {
 
       **Objetivos Principales:**
       - **Seguridad:** Eliminar la manipulación manual de archivos SQL sensibles.
-      - **Estandarización:** Asegurar que todas las queries cumplan con los formatos de *naming convention* y *coding style*.
+      - **Estandarización:** Asegurar que todas las queries cumplan con los formatos de Naming Convention y Coding Style.
       - **Trazabilidad:** Registrar quién descargó qué y cuándo (Log de Actividad).
       - **Versionado:** Mantener un historial inmutable de las configuraciones por entorno (Repositorio).`,
       mock: null
@@ -202,8 +202,7 @@ const Documentation: React.FC = () => {
     const element = document.getElementById(id);
     const container = document.getElementById('docs-content-container');
     if (element && container) {
-        const topPos = element.offsetTop - container.offsetTop;
-        container.scrollTo({ top: topPos - 20, behavior: 'smooth' });
+        container.scrollTo({ top: element.offsetTop - 32, behavior: 'smooth' });
     }
   };
 
@@ -212,42 +211,137 @@ const Documentation: React.FC = () => {
     // CSS en línea optimizado para el motor de renderizado de Word
     const css = `
         <style>
-            @page { margin: 2.5cm; }
-            body { font-family: 'Calibri', 'Arial', sans-serif; font-size: 11pt; line-height: 1.5; color: #333; }
+            @page { 
+                margin: 3cm 2.5cm; 
+                mso-page-orientation: portrait;
+            }
+            body { 
+                font-family: 'Calibri', 'Arial', sans-serif; 
+                font-size: 11pt; 
+                line-height: 1.6; 
+                color: #333; 
+                background: white;
+            }
             
             /* Portada */
-            .cover-page { text-align: center; page-break-after: always; padding-top: 5cm; }
-            .cover-title { font-size: 36pt; color: #110841; font-weight: bold; margin-bottom: 20px; letter-spacing: -1px; }
-            .cover-subtitle { font-size: 18pt; color: #499CD9; margin-bottom: 60px; font-weight: 300; text-transform: uppercase; }
-            .cover-meta { border-top: 1px solid #ddd; padding-top: 20px; font-size: 12pt; color: #666; width: 60%; margin: 0 auto; }
+            .cover-page { 
+                text-align: center; 
+                page-break-after: always; 
+                padding-top: 6cm; 
+                display: flex;
+                flex-direction: column;
+                align-items: center;
+                justify-content: center;
+            }
+            .cover-title { 
+                font-size: 36pt; 
+                color: #110841; 
+                font-weight: bold; 
+                margin-bottom: 24px; 
+                letter-spacing: -0.5px; 
+            }
+            .cover-subtitle { 
+                font-size: 18pt; 
+                color: #499CD9; 
+                margin-bottom: 80px; 
+                font-weight: 300; 
+                text-transform: uppercase; 
+                letter-spacing: 2px;
+            }
+            .cover-meta { 
+                border-top: 2px solid #EE2833; 
+                padding-top: 30px; 
+                font-size: 12pt; 
+                color: #555; 
+                width: 60%; 
+                margin: 0 auto; 
+                text-align: center;
+            }
+            .cover-meta p {
+                margin: 8px 0;
+            }
             
             /* TOC */
-            .toc { page-break-after: always; background-color: #f9f9f9; padding: 40px; }
-            .toc h2 { color: #110841; border-bottom: 2px solid #110841; padding-bottom: 10px; margin-bottom: 20px; }
-            .toc-item { margin-bottom: 10px; font-size: 12pt; border-bottom: 1px dotted #ccc; display: flex; justify-content: space-between; }
+            .toc { 
+                page-break-after: always; 
+                padding: 40px 0; 
+            }
+            .toc h2 { 
+                color: #110841; 
+                border-bottom: 2px solid #110841; 
+                padding-bottom: 15px; 
+                margin-bottom: 30px; 
+                font-size: 20pt;
+            }
+            .toc-item { 
+                margin-bottom: 15px; 
+                font-size: 12pt; 
+                border-bottom: 1px dotted #ccc; 
+                padding-bottom: 5px;
+                display: flex; 
+                justify-content: space-between; 
+            }
             
             /* Contenido */
-            h1 { color: #110841; font-size: 24pt; margin-top: 0; page-break-before: always; border-bottom: 3px solid #EE2833; padding-bottom: 10px; }
-            h2 { color: #499CD9; font-size: 16pt; margin-top: 30px; margin-bottom: 15px; }
-            p { margin-bottom: 12px; text-align: justify; }
-            strong { color: #110841; font-weight: bold; }
+            h1 { 
+                color: #110841; 
+                font-size: 24pt; 
+                margin-top: 0; 
+                page-break-before: always; 
+                border-bottom: 3px solid #EE2833; 
+                padding-bottom: 15px; 
+                margin-bottom: 30px;
+            }
+            h2 { 
+                color: #499CD9; 
+                font-size: 16pt; 
+                margin-top: 35px; 
+                margin-bottom: 20px; 
+                border-left: 4px solid #499CD9;
+                padding-left: 10px;
+            }
+            p { 
+                margin-bottom: 18px; 
+                text-align: left; /* Justify can cause spacing issues in Word web view */
+                margin-top: 0;
+            }
+            ul {
+                margin-bottom: 18px;
+                padding-left: 30px;
+            }
+            li {
+                margin-bottom: 8px;
+            }
+            strong { 
+                color: #110841; 
+                font-weight: bold; 
+            }
             
             /* Bloques de código y notas */
-            .note { background-color: #e6f7ff; border-left: 5px solid #1890ff; padding: 15px; margin: 20px 0; font-style: italic; color: #555; }
-            .code-inline { font-family: 'Consolas', monospace; color: #c7254e; background-color: #f9f2f4; padding: 2px 4px; border-radius: 4px; }
-            
-            /* Tablas */
-            table { width: 100%; border-collapse: collapse; margin: 20px 0; font-size: 10pt; }
-            th { background-color: #110841; color: white; padding: 10px; text-align: left; }
-            td { border: 1px solid #ddd; padding: 8px; }
-            tr:nth-child(even) { background-color: #f2f2f2; }
+            .note { 
+                background-color: #f0f7ff; 
+                border: 1px solid #bae7ff;
+                border-left: 5px solid #1890ff; 
+                padding: 15px; 
+                margin: 25px 0; 
+                font-style: italic; 
+                color: #0050b3; 
+            }
+            .code-inline { 
+                font-family: 'Consolas', 'Courier New', monospace; 
+                color: #c7254e; 
+                background-color: #f9f2f4; 
+                padding: 2px 5px; 
+                border-radius: 3px; 
+                font-size: 0.95em;
+            }
         </style>
     `;
 
     const cover = `
         <div class="cover-page">
             <div class="cover-title">ALQUID Data Suite</div>
-            <div class="cover-subtitle">Manual de Operaciones y Referencia Técnica</div>
+            <div class="cover-subtitle">Manual de Operaciones</div>
             <div class="cover-meta">
                 <p><strong>Versión:</strong> 2.1 Stable</p>
                 <p><strong>Fecha:</strong> ${new Date().toLocaleDateString()}</p>
@@ -304,120 +398,149 @@ const Documentation: React.FC = () => {
     document.body.removeChild(link);
   };
 
-  // --- GENERACIÓN DE PPT (MEJORADA - DISEÑO EJECUTIVO) ---
+  // --- GENERACIÓN DE PPT (MEJORADA - DISEÑO LIMPIO) ---
   const generatePPT = () => {
     const pres = new PptxGenJS();
     pres.layout = 'LAYOUT_16x9';
     pres.author = 'ALQUID Suite';
     pres.title = 'Documentación Técnica';
 
-    // Definir Master Slide Limpio y Corporativo
+    // Colores Corporativos
+    const colors = {
+        navy: '110841',
+        orange: 'EE2833',
+        blue: '499CD9',
+        gray: 'F5F9F9',
+        text: '383838'
+    };
+
+    // --- MASTER SLIDE ---
     pres.defineSlideMaster({
-      title: 'MASTER_CORP',
+      title: 'MASTER_CLEAN',
       background: { color: 'FFFFFF' },
       objects: [
-        // Barra Lateral Azul
-        { rect: { x: 0, y: 0, w: 0.4, h: '100%', fill: { color: '110841' } } },
-        // Logo Placeholder
-        { text: { text: 'ALQUID', options: { x: 0.6, y: 0.3, fontSize: 14, color: '110841', bold: true, fontFace: 'Arial' } } },
-        { text: { text: 'DATA SUITE', options: { x: 0.6, y: 0.55, fontSize: 8, color: 'EE2833', bold: true, charSpacing: 4 } } },
-        // Footer Line
-        { line: { x: 0.6, y: 7.0, w: '90%', h: 0, line: { color: 'CCCCCC', width: 1 } } },
-        { text: { text: 'Confidencial - Uso Interno', options: { x: 0.6, y: 7.1, fontSize: 9, color: '999999' } } }
+        // Header Bar
+        { rect: { x: 0, y: 0, w: '100%', h: 0.15, fill: { color: colors.navy } } },
+        { rect: { x: 0, y: 0.15, w: '100%', h: 0.05, fill: { color: colors.orange } } },
+        
+        // Footer
+        { line: { x: 0.5, y: 7.0, w: '93%', h: 0, line: { color: 'CCCCCC', width: 1 } } },
+        { text: { text: 'ALQUID Data Suite | Documentación Oficial', options: { x: 0.5, y: 7.1, fontSize: 9, color: '999999' } } },
+        { text: { text: 'Confidencial', options: { x: 11.5, y: 7.1, fontSize: 9, color: '999999', align: 'right' } } }
       ],
-      slideNumber: { x: 12.5, y: 7.1, fontSize: 9, color: '110841' }
+      slideNumber: { x: 12.8, y: 7.1, fontSize: 9, color: colors.navy }
     });
 
-    // 1. Portada Impactante
+    // --- 1. PORTADA ---
     const slideCover = pres.addSlide();
-    slideCover.background = { color: 'F0F2F5' }; // Gris muy claro
-    // Elementos gráficos portada
-    slideCover.addShape(pres.ShapeType.rect, { x: 0, y: 0, w: '40%', h: '100%', fill: { color: '110841' } });
-    slideCover.addText('ALQUID', { x: 0.5, y: 3.0, fontSize: 54, color: 'FFFFFF', bold: true });
-    slideCover.addText('DATA SUITE', { x: 0.5, y: 3.8, fontSize: 24, color: '499CD9', charSpacing: 8 });
-    slideCover.addText('Manual Técnico v2.1', { x: 5.5, y: 3.5, fontSize: 32, color: '333333', bold: true });
-    slideCover.addText('Gestión, Validación y Gobierno del Dato', { x: 5.5, y: 4.2, fontSize: 16, color: '666666' });
+    slideCover.background = { color: colors.navy };
+    
+    // Logo / Título
+    slideCover.addText('ALQUID', { 
+        x: 1.0, y: 2.5, fontSize: 60, color: 'FFFFFF', bold: true, fontFace: 'Arial' 
+    });
+    slideCover.addText('DATA SUITE', { 
+        x: 1.0, y: 3.4, fontSize: 24, color: colors.blue, charSpacing: 5, fontFace: 'Arial' 
+    });
 
-    // 2. Diapositivas de Contenido (Diseño de 2 Columnas)
+    // Línea separadora
+    slideCover.addShape(pres.ShapeType.line, { 
+        x: 1.0, y: 4.0, w: 4.0, h: 0, line: { color: colors.orange, width: 3 } 
+    });
+
+    // Subtítulo
+    slideCover.addText('Manual de Operaciones y Referencia Técnica', { 
+        x: 1.0, y: 4.5, fontSize: 18, color: 'E0E0E0' 
+    });
+    
+    // Fecha
+    slideCover.addText(`Generado: ${new Date().toLocaleDateString()}`, { 
+        x: 1.0, y: 6.5, fontSize: 12, color: 'AAAAAA' 
+    });
+
+    // --- 2. CONTENIDO ---
     sections.forEach(sec => {
-        const slide = pres.addSlide({ masterName: 'MASTER_CORP' });
+        const slide = pres.addSlide({ masterName: 'MASTER_CLEAN' });
         
-        // Título de Sección
-        slide.addText(sec.title, { x: 0.6, y: 1.0, fontSize: 24, color: '110841', bold: true, fontFace: 'Arial' });
+        // Título de la diapositiva
+        slide.addText(sec.title, { 
+            x: 0.5, y: 0.5, w: '90%', fontSize: 24, color: colors.navy, bold: true 
+        });
 
-        // Procesar Texto (Limpieza)
-        const cleanText = sec.content
-            .replace(/\*\*(.*?)\*\*/g, '$1') // Quitar negritas MD
-            .replace(/`(.*?)`/g, '"$1"')     // Quitar backticks
-            .split('\n')
-            .filter(l => l.trim().length > 0 && !l.trim().startsWith('-')); // Filtrar bullets manuales para el resumen
+        // Procesar contenido para bullets
+        const lines = sec.content.split('\n').filter(l => l.trim().length > 0);
+        const bullets = [];
+        let introText = "";
 
-        const bulletPoints = sec.content
-            .split('\n')
-            .filter(l => l.trim().startsWith('-'))
-            .map(l => l.replace('-', '').trim());
+        lines.forEach(line => {
+            const cleanLine = line.trim().replace(/\*\*/g, '').replace(/`/g, '');
+            if (cleanLine.startsWith('-') || cleanLine.startsWith('1.')) {
+                bullets.push(cleanLine.replace(/^[-1\.]+\s*/, ''));
+            } else if (!introText && !cleanLine.endsWith(':')) {
+                introText = cleanLine;
+            }
+        });
 
-        // Columna Izquierda: Texto Principal
-        let yPos = 1.8;
-        // Párrafo introductorio (primeras 2 líneas max)
-        if (cleanText.length > 0) {
-            slide.addText(cleanText.slice(0, 2).join(' '), { 
-                x: 0.6, y: yPos, w: 6.0, fontSize: 12, color: '444444', align: 'justify' 
+        // Columna Izquierda: Texto
+        let yPos = 1.5;
+        
+        // Intro breve
+        if (introText) {
+            slide.addText(introText, { 
+                x: 0.5, y: yPos, w: 6.5, fontSize: 14, color: colors.text, align: 'justify' 
             });
-            yPos += 1.2;
+            yPos += 1.5;
         }
 
-        // Bullets (Puntos Clave)
-        if (bulletPoints.length > 0) {
-            slide.addText('Puntos Clave:', { x: 0.6, y: yPos, fontSize: 11, color: '110841', bold: true });
-            yPos += 0.3;
-            bulletPoints.slice(0, 5).forEach(bp => {
-                slide.addText(bp, { 
-                    x: 0.6, y: yPos, w: 6.0, fontSize: 11, color: '555555', 
-                    bullet: { type: 'number', color: 'EE2833' }, paraSpaceAfter: 6
-                });
-                yPos += 0.5;
+        // Bullets
+        if (bullets.length > 0) {
+            const bulletObjects = bullets.map(b => ({ text: b }));
+            slide.addText(bulletObjects, { 
+                x: 0.5, y: yPos, w: 6.5, h: 4.0, 
+                fontSize: 12, color: '555555', 
+                bullet: { type: 'number', color: colors.orange }, 
+                paraSpaceAfter: 10,
+                valign: 'top'
             });
         }
 
-        // Columna Derecha: Representación Visual (Mockup Abstracto)
-        // Caja contenedora (Simula la pantalla)
+        // Columna Derecha: Visual Placeholder (Más limpio)
+        // Caja de fondo
         slide.addShape(pres.ShapeType.rect, { 
-            x: 7.0, y: 1.8, w: 5.5, h: 4.0, 
-            fill: { color: 'FFFFFF' }, line: { color: 'DDDDDD', width: 1 }, 
-            shadow: { type: 'outer', color: '000000', opacity: 0.1, offset: 5, blur: 5 } 
+            x: 7.5, y: 1.5, w: 5.0, h: 4.5, 
+            fill: { color: 'F8F9FA' }, line: { color: 'E0E0E0', width: 1 },
+            shadow: { type: 'outer', color: '000000', opacity: 0.1, offset: 3, blur: 3 }
+        });
+
+        // Header de la "ventana"
+        slide.addShape(pres.ShapeType.rect, { 
+            x: 7.5, y: 1.5, w: 5.0, h: 0.4, 
+            fill: { color: 'E9ECEF' }, line: { color: 'E0E0E0', width: 0 } 
         });
         
-        // Header de la "Ventana"
-        slide.addShape(pres.ShapeType.rect, { x: 7.0, y: 1.8, w: 5.5, h: 0.4, fill: { color: 'F3F4F6' } });
-        slide.addShape(pres.ShapeType.ellipse, { x: 7.2, y: 1.95, w: 0.1, h: 0.1, fill: { color: 'FF5F56' } }); // Rojo
-        slide.addShape(pres.ShapeType.ellipse, { x: 7.4, y: 1.95, w: 0.1, h: 0.1, fill: { color: 'FFBD2E' } }); // Amarillo
-        slide.addShape(pres.ShapeType.ellipse, { x: 7.6, y: 1.95, w: 0.1, h: 0.1, fill: { color: '27C93F' } }); // Verde
+        // Botones ventana
+        slide.addShape(pres.ShapeType.ellipse, { x: 7.7, y: 1.65, w: 0.12, h: 0.12, fill: { color: 'FF5F56' } });
+        slide.addShape(pres.ShapeType.ellipse, { x: 7.9, y: 1.65, w: 0.12, h: 0.12, fill: { color: 'FFBD2E' } });
+        slide.addShape(pres.ShapeType.ellipse, { x: 8.1, y: 1.65, w: 0.12, h: 0.12, fill: { color: '27C93F' } });
 
-        // Contenido Abstracto según sección
-        if (sec.id === 'downloader' || sec.id === 'repository') {
-            // Simular tabla/lista
-            for(let i=0; i<4; i++) {
-                slide.addShape(pres.ShapeType.rect, { 
-                    x: 7.2, y: 2.4 + (i*0.5), w: 5.1, h: 0.35, 
-                    fill: { color: i===0 ? 'E6F7FF' : 'F9FAFB' }, line: { color: 'EEEEEE' } 
-                });
-                // Líneas de texto simuladas
-                slide.addShape(pres.ShapeType.rect, { x: 7.3, y: 2.5 + (i*0.5), w: 2.0, h: 0.1, fill: { color: 'CCCCCC' } });
-                slide.addShape(pres.ShapeType.rect, { x: 11.5, y: 2.5 + (i*0.5), w: 0.5, h: 0.1, fill: { color: '87D068' } }); // Status verde
-            }
-        } else if (sec.id === 'extractor' || sec.id === 'editor') {
-            // Simular código
-            slide.addShape(pres.ShapeType.rect, { x: 7.2, y: 2.4, w: 5.1, h: 3.2, fill: { color: '1E1E1E' } });
-            slide.addText('SELECT * FROM TABLE', { x: 7.4, y: 2.6, fontSize: 10, color: '569CD6', fontFace: 'Courier New' });
-            slide.addText('WHERE date = :today', { x: 7.4, y: 3.0, fontSize: 10, color: 'D4D4D4', fontFace: 'Courier New' });
-        } else {
-            // Introducción / Generico
-            slide.addText('ALQUID', { x: 8.5, y: 3.5, fontSize: 24, color: 'DDDDDD', bold: true, align: 'center' });
-        }
+        // Icono Central Grande
+        // Como no podemos renderizar iconos React en PPT, usamos formas básicas o texto
+        slide.addShape(pres.ShapeType.ellipse, { 
+            x: 9.5, y: 3.2, w: 1.0, h: 1.0, 
+            fill: { color: colors.navy } 
+        });
+        
+        // Texto descriptivo en el placeholder
+        slide.addText('Funcionalidad Interactiva', { 
+            x: 7.5, y: 4.3, w: 5.0, fontSize: 14, color: colors.text, align: 'center', bold: true 
+        });
+        slide.addText('Ver en aplicación web', { 
+            x: 7.5, y: 4.7, w: 5.0, fontSize: 10, color: '888888', align: 'center' 
+        });
+
     });
 
-    pres.writeFile({ fileName: 'Presentacion_Ejecutiva_ALQUID.pptx' });
+    pres.writeFile({ fileName: 'Presentacion_ALQUID.pptx' });
   };
 
   return (

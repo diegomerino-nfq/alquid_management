@@ -5,6 +5,7 @@ import PageHeader from '../components/PageHeader';
 import { QueryDefinition, EXPECTED_DATABASES, ReportDefinition } from '../types';
 import { prepareFinalSql } from '../utils/sqlFormatter';
 import { useGlobalState } from '../context/GlobalStateContext';
+import QueryValidatorModal, { InvalidQuery } from '../components/QueryValidatorModal';
 
 const ReportDownloader: React.FC = () => {
   // Use Global State (Downloader Specific)
@@ -33,6 +34,11 @@ const ReportDownloader: React.FC = () => {
     fileName: string;
     errors: string[];
   }>({ isOpen: false, fileName: '', errors: [] });
+
+  // Dynamic Reference Validator State
+  const [invalidQueries, setInvalidQueries] = useState<InvalidQuery[]>([]);
+  const [isValidatorOpen, setIsValidatorOpen] = useState(false);
+  const [pendingReports, setPendingReports] = useState<{data: any, fileName: string} | null>(null);
 
   // Filtering State
   const [filters, setFilters] = useState<Record<string, Set<string>>>({});
@@ -97,6 +103,31 @@ const ReportDownloader: React.FC = () => {
           throw new Error("Estructura JSON inválida");
       }
 
+      // Check for dynamic references (%s.%s)
+      const invalidDynamicQueries: InvalidQuery[] = [];
+      json.forEach((repo: any, rIdx: number) => {
+        if (repo.queries && Array.isArray(repo.queries)) {
+          repo.queries.forEach((q: any, qIdx: number) => {
+             if (q.sql && !q.sql.includes('%s.%s')) {
+                invalidDynamicQueries.push({
+                  reportIndex: rIdx,
+                  queryIndex: qIdx,
+                  reportName: repo.report,
+                  query: q
+                });
+             }
+          });
+        }
+      });
+
+      if (invalidDynamicQueries.length > 0) {
+        setPendingReports({ data: json, fileName });
+        setInvalidQueries(invalidDynamicQueries);
+        setIsValidatorOpen(true);
+        addLog('DESCARGA', 'VALIDACION_DINAMICA', `Se detectaron ${invalidDynamicQueries.length} queries con referencias absolutas.`, 'WARNING');
+        return; 
+      }
+
       setDownloadReports(json, fileName);
       addLog('DESCARGA', 'CARGA_ARCHIVO', `Archivo de queries cargado: ${fileName}`, 'SUCCESS');
     } catch (e: any) {
@@ -112,6 +143,25 @@ const ReportDownloader: React.FC = () => {
       // Rethrow to let FileInput show the red border
       throw e;
     }
+  };
+
+  const handleValidatorSave = (correctedQueries: InvalidQuery[]) => {
+    if (!pendingReports) return;
+
+    const newJson = JSON.parse(JSON.stringify(pendingReports.data)); // Deep clone
+
+    correctedQueries.forEach(item => {
+       if (newJson[item.reportIndex] && newJson[item.reportIndex].queries[item.queryIndex]) {
+          newJson[item.reportIndex].queries[item.queryIndex] = item.query;
+       }
+    });
+
+    setDownloadReports(newJson, pendingReports.fileName);
+    addLog('DESCARGA', 'CARGA_ARCHIVO', `Archivo de queries cargado y corregido: ${pendingReports.fileName}`, 'SUCCESS');
+    
+    setPendingReports(null);
+    setInvalidQueries([]);
+    setIsValidatorOpen(false);
   };
 
   const handleConfigLoaded = (content: string, fileName: string) => {
@@ -470,6 +520,18 @@ const ReportDownloader: React.FC = () => {
               </div>
           </div>
       )}
+
+      {/* DYNAMIC REFERENCE VALIDATOR MODAL */}
+      <QueryValidatorModal 
+        isOpen={isValidatorOpen}
+        invalidQueries={invalidQueries}
+        onClose={() => {
+            setIsValidatorOpen(false);
+            setPendingReports(null);
+            setInvalidQueries([]);
+        }}
+        onSave={handleValidatorSave}
+      />
 
       <div className="flex flex-1 gap-6 h-full relative overflow-hidden mt-6">
         

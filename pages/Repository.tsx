@@ -1,9 +1,11 @@
-import React, { useRef, useState, useMemo } from 'react';
-import { Archive, Upload, FileJson, Download, ChevronRight, Folder, Database, X, ArrowLeft, GitCompare, ArrowRightLeft, Check, AlertTriangle, Plus, Minus, Calendar, User, Clock, ShieldCheck, XCircle, FileText } from 'lucide-react';
+import React, { useRef, useState, useMemo, useEffect } from 'react';
+import { Archive, Upload, FileJson, Download, ChevronRight, Folder, Database, X, ArrowLeft, GitCompare, ArrowRightLeft, Check, AlertTriangle, Plus, Minus, Calendar, User, Clock, ShieldCheck, XCircle, FileText, Github, Save } from 'lucide-react';
 import PageHeader from '../components/PageHeader';
 import { useGlobalState } from '../context/GlobalStateContext';
 import { RepositoryFile, ReportDefinition, QueryDefinition, EXPECTED_DATABASES } from '../types';
 import { formatSqlBonito } from '../utils/sqlFormatter';
+import QueryValidatorModal, { InvalidQuery } from '../components/QueryValidatorModal';
+import { Octokit } from 'octokit';
 
 // --- Helper Types for Diff ---
 type DiffStatus = 'ADDED' | 'REMOVED' | 'MODIFIED' | 'UNCHANGED';
@@ -72,35 +74,135 @@ const Repository: React.FC = () => {
       contentToUpload: null
   });
 
+  // Dynamic Reference Validator State
+  const [invalidQueries, setInvalidQueries] = useState<InvalidQuery[]>([]);
+  const [isValidatorOpen, setIsValidatorOpen] = useState(false);
+
+  // GitHub Integration State
+  const [githubToken, setGithubToken] = useState<string | null>(null);
+  const [githubUser, setGithubUser] = useState<any>(null);
+  const [githubRepos, setGithubRepos] = useState<any[]>([]);
+  const [selectedRepo, setSelectedRepo] = useState<string>('');
+  const [selectedBranch, setSelectedBranch] = useState<string>('main');
+  const [filePath, setFilePath] = useState<string>('');
+  const [isGithubModalOpen, setIsGithubModalOpen] = useState(false);
+  const [isPushing, setIsPushing] = useState(false);
+
   // Ref for the file input - Mounted at top level
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    // Access state directly from closure or verify state is set
-    if (!selectedRegion || !selectedEnv) {
-        alert("Error de estado: Región o entorno no seleccionados.");
-        if (e.target) e.target.value = ''; // Reset
-        return;
-    }
+  // Listen for GitHub Auth Success
+  useEffect(() => {
+    const handleMessage = (event: MessageEvent) => {
+        if (event.data?.type === 'GITHUB_AUTH_SUCCESS' && event.data.token) {
+            setGithubToken(event.data.token);
+            addLog('GITHUB', 'AUTH_SUCCESS', 'Autenticación con GitHub exitosa', 'SUCCESS');
+        }
+    };
+    window.addEventListener('message', handleMessage);
+    return () => window.removeEventListener('message', handleMessage);
+  }, [addLog]);
 
-    const file = e.target.files?.[0];
-    if (!file) return;
+  // Fetch User and Repos when token is set
+  useEffect(() => {
+      if (githubToken) {
+          const octokit = new Octokit({ auth: githubToken });
+          octokit.rest.users.getAuthenticated().then(({ data }) => {
+              setGithubUser(data);
+          }).catch(err => console.error(err));
 
-    const reader = new FileReader();
-    reader.onload = (event) => {
+          octokit.rest.repos.listForAuthenticatedUser({ sort: 'updated', per_page: 100 }).then(({ data }) => {
+              setGithubRepos(data);
+          }).catch(err => console.error(err));
+      }
+  }, [githubToken]);
+
+  const connectGitHub = async () => {
       try {
-        const content = event.target?.result as string;
-        const jsonContent: ReportDefinition[] = JSON.parse(content);
+          const redirectUri = `${window.location.origin}/auth/callback`;
+          const response = await fetch(`/api/auth/github/url?redirect_uri=${encodeURIComponent(redirectUri)}`);
+          const { url } = await response.json();
+          
+          const width = 600;
+          const height = 700;
+          const left = window.screen.width / 2 - width / 2;
+          const top = window.screen.height / 2 - height / 2;
+          
+          window.open(url, 'github_oauth', `width=${width},height=${height},top=${top},left=${left}`);
+      } catch (error) {
+          console.error('Failed to get auth URL', error);
+          addLog('GITHUB', 'AUTH_ERROR', 'Error al iniciar autenticación', 'ERROR');
+      }
+  };
 
+  const openGithubModal = (file: RepositoryFile) => {
+      if (!githubToken) {
+          connectGitHub();
+          return;
+      }
+      setSelectedFile(file);
+      // Default path: region/env/filename.json
+      setFilePath(`${selectedRegion}/${selectedEnv}/${file.fileName}`);
+      setIsGithubModalOpen(true);
+  };
+
+  const saveToGitHub = async () => {
+      if (!githubToken || !selectedRepo || !selectedFile) return;
+      
+      setIsPushing(true);
+      try {
+          const octokit = new Octokit({ auth: githubToken });
+          const [owner, repo] = selectedRepo.split('/');
+          const content = JSON.stringify(selectedFile.content, null, 4);
+          const message = `Update ${selectedFile.fileName} (v${selectedFile.version})`;
+          
+          // Check if file exists to get SHA
+          let sha;
+          try {
+              const { data } = await octokit.rest.repos.getContent({
+                  owner,
+                  repo,
+                  path: filePath,
+                  ref: selectedBranch
+              });
+              if (!Array.isArray(data) && data.sha) {
+                  sha = data.sha;
+              }
+          } catch (e) {
+              // File doesn't exist, that's fine
+          }
+
+          await octokit.rest.repos.createOrUpdateFileContents({
+              owner,
+              repo,
+              path: filePath,
+              message,
+              content: btoa(unescape(encodeURIComponent(content))), // Base64 encode handling utf8
+              branch: selectedBranch,
+              sha
+          });
+
+          addLog('GITHUB', 'PUSH_SUCCESS', `Archivo guardado en ${selectedRepo}/${filePath}`, 'SUCCESS');
+          setIsGithubModalOpen(false);
+      } catch (error: any) {
+          console.error(error);
+          addLog('GITHUB', 'PUSH_ERROR', `Error al guardar en GitHub: ${error.message}`, 'ERROR');
+          alert(`Error al guardar en GitHub: ${error.message}`);
+      } finally {
+          setIsPushing(false);
+      }
+  };
+
+  const validateAndSetState = (jsonContent: ReportDefinition[], fileName: string) => {
         // 1. Validación de Estructura Básica
         if (!Array.isArray(jsonContent)) {
              alert("El archivo no parece ser un array de reportes válido.");
-             addLog('REPOSITORIO', 'ERROR_SUBIDA', `Formato JSON incorrecto: ${file.name}`, 'ERROR');
+             addLog('REPOSITORIO', 'ERROR_SUBIDA', `Formato JSON incorrecto: ${fileName}`, 'ERROR');
              return;
         }
 
         // 2. Validación Estricta de Bases de Datos por Geografía/Entorno
-        const allowedDbs = EXPECTED_DATABASES[selectedRegion]?.[selectedEnv] || [];
+        const allowedDbs = EXPECTED_DATABASES[selectedRegion!]?.[selectedEnv!] || [];
         const foundErrors: ValidationError[] = [];
         let queryCount = 0;
 
@@ -122,22 +224,71 @@ const Repository: React.FC = () => {
             setValidation({
                 isOpen: true,
                 status: 'ERROR',
-                fileName: file.name,
+                fileName: fileName,
                 totalQueries: queryCount,
                 errors: foundErrors,
                 contentToUpload: null // Block upload
             });
-            addLog('REPOSITORIO', 'INTENTO_FALLIDO', `Validación fallida para ${file.name} (${foundErrors.length} errores)`, 'WARNING');
+            addLog('REPOSITORIO', 'INTENTO_FALLIDO', `Validación fallida para ${fileName} (${foundErrors.length} errores)`, 'WARNING');
         } else {
             setValidation({
                 isOpen: true,
                 status: 'SUCCESS',
-                fileName: file.name,
+                fileName: fileName,
                 totalQueries: queryCount,
                 errors: [],
                 contentToUpload: jsonContent // Ready to upload
             });
         }
+  };
+
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    // Access state directly from closure or verify state is set
+    if (!selectedRegion || !selectedEnv) {
+        alert("Error de estado: Región o entorno no seleccionados.");
+        if (e.target) e.target.value = ''; // Reset
+        return;
+    }
+
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      try {
+        const content = event.target?.result as string;
+        const jsonContent: ReportDefinition[] = JSON.parse(content);
+
+        // 0. Dynamic Reference Check (%s.%s)
+        const invalidDynamicQueries: InvalidQuery[] = [];
+        jsonContent.forEach((repo, rIdx) => {
+            if (repo.queries && Array.isArray(repo.queries)) {
+                repo.queries.forEach((q, qIdx) => {
+                    if (q.sql && !q.sql.includes('%s.%s')) {
+                        invalidDynamicQueries.push({
+                            reportIndex: rIdx,
+                            queryIndex: qIdx,
+                            reportName: repo.report,
+                            query: q
+                        });
+                    }
+                });
+            }
+        });
+
+        if (invalidDynamicQueries.length > 0) {
+            setInvalidQueries(invalidDynamicQueries);
+            setValidation({
+                ...validation,
+                fileName: file.name,
+                contentToUpload: jsonContent // Store pending content here
+            });
+            setIsValidatorOpen(true);
+            addLog('REPOSITORIO', 'VALIDACION_DINAMICA', `Se detectaron ${invalidDynamicQueries.length} queries con referencias absolutas.`, 'WARNING');
+            return;
+        }
+
+        validateAndSetState(jsonContent, file.name);
 
       } catch (err) {
         alert("El archivo debe ser un JSON válido.");
@@ -148,6 +299,24 @@ const Repository: React.FC = () => {
     
     // IMPORTANT: Reset value to allow re-uploading same file if it failed previously
     e.target.value = ''; 
+  };
+
+  const handleValidatorSave = (correctedQueries: InvalidQuery[]) => {
+      if (!validation.contentToUpload) return;
+
+      const newJson = JSON.parse(JSON.stringify(validation.contentToUpload));
+
+      correctedQueries.forEach(item => {
+         if (newJson[item.reportIndex] && newJson[item.reportIndex].queries[item.queryIndex]) {
+            newJson[item.reportIndex].queries[item.queryIndex] = item.query;
+         }
+      });
+
+      setIsValidatorOpen(false);
+      setInvalidQueries([]);
+      
+      // Now proceed to standard validation
+      validateAndSetState(newJson, validation.fileName);
   };
 
   const confirmUpload = () => {
@@ -308,6 +477,15 @@ const Repository: React.FC = () => {
         title="Repositorio Centralizado" 
         subtitle="Gestión jerárquica de configuraciones y versionado"
         icon={<Archive size={20}/>}
+        action={
+            <button 
+                onClick={connectGitHub}
+                className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-bold transition-all shadow-sm ${githubToken ? 'bg-green-100 text-green-700' : 'bg-gray-900 text-white hover:bg-gray-800'}`}
+            >
+                <Github size={18} />
+                {githubToken ? (githubUser?.login || 'Conectado') : 'Conectar GitHub'}
+            </button>
+        }
       />
       
       {/* Hidden File Input - MOVED TO TOP LEVEL to avoid ref loss on conditional rendering */}
@@ -622,7 +800,14 @@ const Repository: React.FC = () => {
                                                             {file.uploadedBy}
                                                         </div>
                                                     </td>
-                                                    <td className="px-6 py-4 text-center">
+                                                    <td className="px-6 py-4 text-center flex justify-center gap-2">
+                                                        <button 
+                                                            onClick={(e) => { e.stopPropagation(); openGithubModal(file); }}
+                                                            className="text-gray-400 hover:text-gray-900 p-2 rounded-lg hover:bg-white border border-transparent hover:border-gray-200 transition-all shadow-sm hover:shadow"
+                                                            title="Guardar en GitHub"
+                                                        >
+                                                            <Github size={18} />
+                                                        </button>
                                                         <button 
                                                             onClick={(e) => downloadFile(file, e)}
                                                             className="text-gray-400 hover:text-alquid-blue p-2 rounded-lg hover:bg-white border border-transparent hover:border-gray-200 transition-all shadow-sm hover:shadow"
@@ -725,6 +910,103 @@ const Repository: React.FC = () => {
                  </div>
              </div>
          </div>
+      )}
+
+      {/* DYNAMIC REFERENCE VALIDATOR MODAL */}
+      <QueryValidatorModal 
+        isOpen={isValidatorOpen}
+        invalidQueries={invalidQueries}
+        onClose={() => {
+            setIsValidatorOpen(false);
+            setInvalidQueries([]);
+            // Optionally reset validation state if needed, but keeping it might be useful if they want to retry
+        }}
+        onSave={handleValidatorSave}
+      />
+
+      {/* GITHUB MODAL */}
+      {isGithubModalOpen && (
+          <div className="fixed inset-0 z-[70] bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
+              <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg flex flex-col animate-fade-in border border-gray-200 overflow-hidden">
+                  <div className="p-6 border-b flex items-center justify-between bg-gray-50">
+                      <div className="flex items-center gap-3">
+                          <div className="p-2 bg-gray-900 text-white rounded-lg">
+                              <Github size={24} />
+                          </div>
+                          <div>
+                              <h3 className="text-lg font-bold text-gray-800">Guardar en GitHub</h3>
+                              <p className="text-sm text-gray-500">Selecciona el repositorio y la ruta</p>
+                          </div>
+                      </div>
+                      <button onClick={() => setIsGithubModalOpen(false)} className="text-gray-400 hover:text-gray-600">
+                          <X size={24} />
+                      </button>
+                  </div>
+                  
+                  <div className="p-6 space-y-4">
+                      <div>
+                          <label className="block text-sm font-bold text-gray-700 mb-1">Repositorio</label>
+                          <select 
+                              value={selectedRepo} 
+                              onChange={(e) => setSelectedRepo(e.target.value)}
+                              className="w-full p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-gray-900 focus:border-transparent"
+                          >
+                              <option value="">Seleccionar Repositorio...</option>
+                              {githubRepos.map((repo: any) => (
+                                  <option key={repo.id} value={repo.full_name}>{repo.full_name}</option>
+                              ))}
+                          </select>
+                      </div>
+
+                      <div>
+                          <label className="block text-sm font-bold text-gray-700 mb-1">Rama (Branch)</label>
+                          <input 
+                              type="text" 
+                              value={selectedBranch}
+                              onChange={(e) => setSelectedBranch(e.target.value)}
+                              className="w-full p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-gray-900 focus:border-transparent"
+                              placeholder="main"
+                          />
+                      </div>
+
+                      <div>
+                          <label className="block text-sm font-bold text-gray-700 mb-1">Ruta del Archivo</label>
+                          <input 
+                              type="text" 
+                              value={filePath}
+                              onChange={(e) => setFilePath(e.target.value)}
+                              className="w-full p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-gray-900 focus:border-transparent font-mono text-sm"
+                          />
+                          <p className="text-xs text-gray-500 mt-1">La ruta incluye carpetas (ej: config/prod/archivo.json)</p>
+                      </div>
+                  </div>
+
+                  <div className="p-4 border-t border-gray-200 bg-gray-50 flex justify-end gap-3">
+                      <button 
+                          onClick={() => setIsGithubModalOpen(false)} 
+                          className="px-4 py-2 text-gray-600 hover:bg-gray-200 rounded-lg font-bold text-sm transition-colors"
+                      >
+                          Cancelar
+                      </button>
+                      <button 
+                          onClick={saveToGitHub}
+                          disabled={isPushing || !selectedRepo || !filePath}
+                          className={`
+                              px-6 py-2 bg-gray-900 hover:bg-gray-800 text-white rounded-lg font-bold text-sm shadow-lg flex items-center gap-2 transition-transform hover:-translate-y-0.5
+                              ${(isPushing || !selectedRepo || !filePath) ? 'opacity-50 cursor-not-allowed' : ''}
+                          `}
+                      >
+                          {isPushing ? (
+                              <>Wait...</>
+                          ) : (
+                              <>
+                                  <Save size={16}/> Guardar Cambios
+                              </>
+                          )}
+                      </button>
+                  </div>
+              </div>
+          </div>
       )}
 
       {/* Comparison Modal */}
