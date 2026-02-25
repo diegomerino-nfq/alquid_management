@@ -86,9 +86,9 @@ async function startServer() {
   });
 
   app.post('/api/logs', (req, res) => {
-    const { module, action, details, type } = req.body;
+    const { user, module, action, details, type } = req.body;
     try {
-      queries.addLog.run(module, action, details, type);
+      queries.addLog.run(user || 'Sistema', module, action, details, type);
       res.status(204).end();
     } catch (error: any) {
       res.status(500).json({ error: error.message });

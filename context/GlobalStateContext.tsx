@@ -11,6 +11,7 @@ interface PageState<T> {
 export interface LogEntry {
   id: string;
   timestamp: string;
+  user?: string;
   module: 'SISTEMA' | 'DESCARGA' | 'EXTRACCIÓN' | 'EDITOR' | 'REPOSITORIO';
   action: string;
   details: string;
@@ -85,7 +86,8 @@ export const GlobalStateProvider: React.FC<{ children: ReactNode }> = ({ childre
   }, []);
 
   const addLog = (module: LogEntry['module'], action: string, details: string, type: LogEntry['type'] = 'INFO') => {
-    const newLogData = { module, action, details, type };
+    const userName = user?.email || 'Sistema';
+    const newLogData = { user: userName, module, action, details, type };
 
     // Optimistic update
     const tempLog: LogEntry = {

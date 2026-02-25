@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useRef, useEffect } from 'react';
-import { Play, Settings, Database, CheckSquare, Square, Filter, CheckCircle2, XCircle, Search, X, AlertTriangle, FileWarning, FolderOpen, Download } from 'lucide-react';
+import { Play, Settings, Database, CheckSquare, Square, Filter, CheckCircle2, XCircle, Search, X, AlertTriangle, FileWarning, FolderOpen, Download, ShieldAlert } from 'lucide-react';
 import axios from 'axios';
 import FileInput from '../components/FileInput';
 import PageHeader from '../components/PageHeader';
@@ -7,6 +7,8 @@ import { QueryDefinition, EXPECTED_DATABASES, ReportDefinition } from '../types'
 import { prepareFinalSql } from '../utils/sqlFormatter';
 import { useGlobalState } from '../context/GlobalStateContext';
 import QueryValidatorModal, { InvalidQuery } from '../components/QueryValidatorModal';
+import JsonValidationModal from '../components/JsonValidationModal';
+import { validateReportJson, findAbsoluteReferences, ValidationResult } from '../utils/jsonValidator';
 
 const ReportDownloader: React.FC = () => {
   // Use Global State (Downloader Specific)
@@ -42,6 +44,11 @@ const ReportDownloader: React.FC = () => {
   const [isValidatorOpen, setIsValidatorOpen] = useState(false);
   const [pendingReports, setPendingReports] = useState<{ data: any, fileName: string } | null>(null);
 
+  // JSON Validation Modal State
+  const [jsonValidationResults, setJsonValidationResults] = useState<ValidationResult[]>([]);
+  const [isJsonValidationOpen, setIsJsonValidationOpen] = useState(false);
+  const [pendingJsonFile, setPendingJsonFile] = useState<{ data: any, fileName: string } | null>(null);
+
   // Filtering State
   const [filters, setFilters] = useState<Record<string, Set<string>>>({});
   const [activeFilterColumn, setActiveFilterColumn] = useState<string | null>(null);
@@ -59,82 +66,82 @@ const ReportDownloader: React.FC = () => {
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  const validateJsonStructure = (json: any): string[] => {
-    const errors: string[] = [];
-    if (!Array.isArray(json)) {
-      return ["El archivo raíz debe ser un Array de reportes (ej. [{ report: '...', queries: [...] }])"];
-    }
-
-    json.forEach((repo: any, i: number) => {
-      const idx = i + 1;
-      if (!repo.report || typeof repo.report !== 'string') {
-        errors.push(`Ítem #${idx}: Falta la propiedad obligatoria 'report' (string).`);
-      }
-      if (!repo.queries || !Array.isArray(repo.queries)) {
-        const repName = repo.report || `Item #${idx}`;
-        errors.push(`Reporte '${repName}': Falta la propiedad 'queries' o no es un array.`);
-      } else {
-        repo.queries.forEach((q: any, j: number) => {
-          const qIdx = j + 1;
-          const qId = `Query #${qIdx} en '${repo.report}'`;
-          if (!q.filename) errors.push(`${qId}: Falta 'filename'.`);
-          if (!q.sql) errors.push(`${qId}: Falta código 'sql'.`);
-          if (!q.database) errors.push(`${qId}: Falta 'database'.`);
-          if (!q.table) errors.push(`${qId}: Falta 'table'.`);
-        });
-      }
-    });
-    return errors;
-  };
-
   const handleQueriesLoaded = async (content: string, fileName: string) => {
     try {
       const json = JSON.parse(content);
-      const structureErrors = validateJsonStructure(json);
 
-      if (structureErrors.length > 0) {
-        setValidationError({ isOpen: true, fileName, errors: structureErrors });
-        addLog('DESCARGA', 'ERROR_VALIDACION', `Estructura inválida: ${fileName}`, 'ERROR');
-        throw new Error("Estructura JSON inválida");
+      // Run exhaustive validation
+      const validationResults = validateReportJson(json, downloadRegion || undefined, downloadEnv || undefined);
+      const criticalErrors = validationResults.filter(r => r.severity === 'CRITICAL');
+
+      // If CRITICAL errors, block entirely
+      if (criticalErrors.length > 0) {
+        setJsonValidationResults(validationResults);
+        setIsJsonValidationOpen(true);
+        setPendingJsonFile(null);
+        addLog('DESCARGA', 'ERROR_VALIDACION', `${criticalErrors.length} error(es) crítico(s) en ${fileName}`, 'ERROR');
+        return; // Don't load the file
       }
 
-      const invalidDynamicQueries: InvalidQuery[] = [];
-      json.forEach((repo: any, rIdx: number) => {
-        if (repo.queries && Array.isArray(repo.queries)) {
-          repo.queries.forEach((q: any, qIdx: number) => {
-            // Check if SQL lacks %s.%s but contains FROM/JOIN (indicative of absolute ref)
-            if (q.sql && !q.sql.toLowerCase().includes('%s.%s') && /\b(FROM|JOIN)\b/i.test(q.sql)) {
-              invalidDynamicQueries.push({ reportIndex: rIdx, queryIndex: qIdx, reportName: repo.report, query: q });
-            }
-          });
-        }
-      });
-
-      // Update state immediately
-      setDownloadReports(json, fileName);
-
-      // Auto-sync to repository
-      if (downloadRegion && downloadEnv) {
-        try {
-          await addRepositoryFile(downloadRegion, downloadEnv, json, fileName);
-          addLog('DESCARGA', 'AUTO_REPO', `Sincronización automática OK: ${fileName}`, 'SUCCESS');
-        } catch (err) {
-          console.error('Auto-sync failed:', err);
-        }
+      // If non-critical issues, show modal but allow proceeding
+      if (validationResults.length > 0) {
+        setJsonValidationResults(validationResults);
+        setIsJsonValidationOpen(true);
+        setPendingJsonFile({ data: json, fileName });
+        addLog('DESCARGA', 'VALIDACION', `${validationResults.length} aviso(s) en ${fileName}`, 'WARNING');
+        return; // Wait for user decision
       }
 
-      if (invalidDynamicQueries.length > 0) {
-        setInvalidQueries(invalidDynamicQueries);
-        setIsValidatorOpen(true);
-        addLog('DESCARGA', 'VALIDACION_DINAMICA', `Detectadas ${invalidDynamicQueries.length} refs absolutas en ${fileName}`, 'WARNING');
-      } else {
-        addLog('DESCARGA', 'CARGA_ARCHIVO', `Cargado: ${fileName}`, 'SUCCESS');
-      }
+      // No issues — load directly
+      await acceptAndLoadQueries(json, fileName);
     } catch (e: any) {
-      if (e.message !== "Estructura JSON inválida") {
-        setValidationError({ isOpen: true, fileName, errors: ["Error de sintaxis JSON", e.message] });
-      }
+      setValidationError({ isOpen: true, fileName, errors: ["Error de sintaxis JSON", e.message] });
       throw e;
+    }
+  };
+
+  /** Accept validated JSON and load it into state */
+  const acceptAndLoadQueries = async (json: any, fileName: string) => {
+    // Check for absolute references (using tokenizer, not FROM/JOIN regex)
+    const invalidDynamicQueries: InvalidQuery[] = [];
+    json.forEach((repo: any, rIdx: number) => {
+      if (repo.queries && Array.isArray(repo.queries)) {
+        repo.queries.forEach((q: any, qIdx: number) => {
+          if (q.sql && findAbsoluteReferences(q.sql).length > 0) {
+            invalidDynamicQueries.push({ reportIndex: rIdx, queryIndex: qIdx, reportName: repo.report, query: q });
+          }
+        });
+      }
+    });
+
+    // Update state
+    setDownloadReports(json, fileName);
+
+    // Auto-sync to repository
+    if (downloadRegion && downloadEnv) {
+      try {
+        await addRepositoryFile(downloadRegion, downloadEnv, json, fileName);
+        addLog('DESCARGA', 'AUTO_REPO', `Sincronización automática OK: ${fileName}`, 'SUCCESS');
+      } catch (err) {
+        console.error('Auto-sync failed:', err);
+      }
+    }
+
+    if (invalidDynamicQueries.length > 0) {
+      setInvalidQueries(invalidDynamicQueries);
+      setIsValidatorOpen(true);
+      addLog('DESCARGA', 'VALIDACION_DINAMICA', `Detectadas ${invalidDynamicQueries.length} refs absolutas en ${fileName}`, 'WARNING');
+    } else {
+      addLog('DESCARGA', 'CARGA_ARCHIVO', `Cargado: ${fileName}`, 'SUCCESS');
+    }
+  };
+
+  /** User chose to proceed despite validation warnings */
+  const handleJsonValidationProceed = async () => {
+    setIsJsonValidationOpen(false);
+    if (pendingJsonFile) {
+      await acceptAndLoadQueries(pendingJsonFile.data, pendingJsonFile.fileName);
+      setPendingJsonFile(null);
     }
   };
 
@@ -624,6 +631,19 @@ const ReportDownloader: React.FC = () => {
           setInvalidQueries([]);
         }}
         onSave={handleValidatorSave}
+      />
+
+      {/* JSON VALIDATION MODAL */}
+      <JsonValidationModal
+        isOpen={isJsonValidationOpen}
+        results={jsonValidationResults}
+        fileName={pendingJsonFile?.fileName || downloadReports.fileName || 'archivo.json'}
+        onClose={() => {
+          setIsJsonValidationOpen(false);
+          setJsonValidationResults([]);
+          setPendingJsonFile(null);
+        }}
+        onProceed={handleJsonValidationProceed}
       />
 
       {/* EXECUTION STATUS MODAL */}

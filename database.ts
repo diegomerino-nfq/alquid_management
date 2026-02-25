@@ -19,6 +19,7 @@ db.exec(`
   CREATE TABLE IF NOT EXISTS activity_logs (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+    user TEXT,
     module TEXT,
     action TEXT,
     details TEXT,
@@ -44,7 +45,15 @@ try {
   console.log("Migration: Added 'comment' column to repository_files");
 } catch (e: any) {
   if (!e.message.includes('duplicate column name')) {
-    // console.log("Migration skipped: 'comment' column already exists");
+    // already exists
+  }
+}
+try {
+  db.exec("ALTER TABLE activity_logs ADD COLUMN user TEXT");
+  console.log("Migration: Added 'user' column to activity_logs");
+} catch (e: any) {
+  if (!e.message.includes('duplicate column name')) {
+    // already exists
   }
 }
 
@@ -61,8 +70,8 @@ if (!user) {
 export default db;
 
 export const queries = {
-  addLog: db.prepare('INSERT INTO activity_logs (module, action, details, type) VALUES (?, ?, ?, ?)'),
-  getLogs: db.prepare('SELECT * FROM activity_logs ORDER BY timestamp DESC LIMIT 100'),
+  addLog: db.prepare('INSERT INTO activity_logs (user, module, action, details, type) VALUES (?, ?, ?, ?, ?)'),
+  getLogs: db.prepare('SELECT * FROM activity_logs ORDER BY timestamp DESC LIMIT 200'),
   clearLogs: db.prepare('DELETE FROM activity_logs'),
 
   addUser: db.prepare('INSERT INTO users (email, role) VALUES (?, ?)'),
