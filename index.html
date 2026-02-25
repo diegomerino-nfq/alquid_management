@@ -1,60 +1,109 @@
 <!DOCTYPE html>
 <html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>ALQUID Data Tools</title>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <link href="https://fonts.googleapis.com/css2?family=Ubuntu:wght@300;400;500;700&display=swap" rel="stylesheet">
-    <script>
-      tailwind.config = {
-        theme: {
-          extend: {
-            fontFamily: {
-              sans: ['Ubuntu', 'sans-serif'],
-              mono: ['Fira Code', 'Menlo', 'Monaco', 'Courier New', 'monospace'],
-            },
-            colors: {
-              alquid: {
-                navy: '#110841',    // Color Primario
-                orange: '#EE2833',  // Color Secundario (Cadmium Orange corrected)
-                red: '#C5384C',     // Color Secundario (English Red)
-                blue: '#499CD9',    // Color Secundario (Carolina Blue)
-                
-                // Neutros
-                gray10: '#F5F9F9',
-                gray25: '#F6F8F6',
-                gray40: '#CDCDCD',
-                grayDark: '#383838'
-              }
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ALQUID Data Tools</title>
+  <script src="https://accounts.google.com/gsi/client" async defer></script>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link
+    href="https://fonts.googleapis.com/css2?family=Ubuntu:wght@300;400;500;700&family=Inter:wght@300;400;500;600;700&display=swap"
+    rel="stylesheet">
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: ['Ubuntu', 'Inter', 'sans-serif'],
+            mono: ['Fira Code', 'Menlo', 'Monaco', 'Courier New', 'monospace'],
+          },
+          colors: {
+            alquid: {
+              navy: '#110841',    // Color Primario
+              orange: '#EE2833',  // Color Secundario (Cadmium Orange corrected)
+              red: '#C5384C',     // Color Secundario (English Red)
+              blue: '#499CD9',    // Color Secundario (Carolina Blue)
+              lightBlue: '#E6F0F9',
+
+              // Neutros
+              gray10: '#F5F9F9',
+              gray25: '#F6F8F6',
+              gray40: '#CDCDCD',
+              grayDark: '#383838'
             }
+          },
+          boxShadow: {
+            'premium': '0 10px 30px -5px rgba(17, 8, 65, 0.08), 0 4px 12px -2px rgba(17, 8, 65, 0.03)',
+            'inner-soft': 'inset 0 2px 4px 0 rgba(0, 0, 0, 0.03)',
+          },
+          animation: {
+            'fade-in': 'fadeIn 0.4s ease-out',
+            'slide-up': 'slideUp 0.5s cubic-bezier(0.16, 1, 0.3, 1)',
+            'scale-in': 'scaleIn 0.3s cubic-bezier(0.16, 1, 0.3, 1)',
+            'float': 'float 3s ease-in-out infinite',
+          },
+          keyframes: {
+            fadeIn: { '0%': { opacity: '0' }, '100%': { opacity: '1' } },
+            slideUp: { '0%': { transform: 'translateY(10px)', opacity: '0' }, '100%': { transform: 'translateY(0)', opacity: '1' } },
+            scaleIn: { '0%': { transform: 'scale(0.95)', opacity: '0' }, '100%': { transform: 'scale(1)', opacity: '1' } },
+            float: { '0%, 100%': { transform: 'translateY(0)' }, '50%': { transform: 'translateY(-5px)' } },
           }
         }
       }
-    </script>
-    <style>
-      body {
-        font-family: 'Ubuntu', sans-serif;
-        background-color: #F6F8F6; /* Grey 25% */
-        color: #383838; /* Grey 40% Dark */
-      }
-      /* Custom scrollbar for code editor */
-      .code-editor-container textarea {
-        outline: none;
-      }
-      code[class*="language-"], pre[class*="language-"] {
-        font-family: 'Fira Code', 'Menlo', 'Monaco', 'Courier New', monospace;
-        font-size: 14px;
-        line-height: 1.5;
-        direction: ltr;
-        text-align: left;
-        white-space: pre;
-        word-spacing: normal;
-        word-break: normal;
-        tab-size: 4;
-        hyphens: none;
-      }
-    </style>
+    }
+  </script>
+  <style>
+    body {
+      font-family: 'Ubuntu', sans-serif;
+      background-color: #F6F8F6;
+      /* Grey 25% */
+      color: #383838;
+      /* Grey 40% Dark */
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+    }
+
+    .glass-card {
+      background: rgba(255, 255, 255, 0.8);
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+      border: 1px solid rgba(255, 255, 255, 0.3);
+    }
+
+    .alquid-gradient {
+      background: linear-gradient(135deg, #110841 0%, #499CD9 100%);
+    }
+
+    /* Custom scrollbar */
+    ::-webkit-scrollbar {
+      width: 8px;
+      height: 8px;
+    }
+
+    ::-webkit-scrollbar-track {
+      background: transparent;
+    }
+
+    ::-webkit-scrollbar-thumb {
+      background: #CDCDCD;
+      border-radius: 10px;
+    }
+
+    ::-webkit-scrollbar-thumb:hover {
+      background: #383838;
+    }
+
+    .premium-input {
+      transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+
+    .premium-input:focus {
+      border-color: #499CD9;
+      box-shadow: 0 0 0 4px rgba(73, 156, 217, 0.15);
+      background: white;
+    }
+  </style>
   <script type="importmap">
 {
   "imports": {
@@ -69,10 +118,12 @@
   }
 }
 </script>
-<link rel="stylesheet" href="/index.css">
+  <link rel="stylesheet" href="/index.css">
 </head>
-  <body>
-    <div id="root"></div>
+
+<body>
+  <div id="root"></div>
   <script type="module" src="/index.tsx"></script>
 </body>
+
 </html>

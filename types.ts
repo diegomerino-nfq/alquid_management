@@ -35,6 +35,7 @@ export interface RepositoryFile {
   content: any; // The JSON content
   uploadedAt: string;
   uploadedBy: string; // Placeholder for user
+  comment: string;
 }
 
 export type RepositoryData = Record<string, Record<string, RepositoryFile[]>>;
@@ -43,41 +44,41 @@ export type RepositoryData = Record<string, Record<string, RepositoryFile[]>>;
 export const EXPECTED_DATABASES: Record<string, Record<string, string[]>> = {
   "Argentina": {
     "PRE": [
-      "pre_bbva_argenti_alquid_archive_xua", 
+      "pre_bbva_argenti_alquid_archive_xua",
       "pre_bbva_argenti_alquid_xua"
     ],
     "PRO": [
-      "pro_bbva_argenti_alquid_archive_qxw", 
+      "pro_bbva_argenti_alquid_archive_qxw",
       "pro_bbva_argenti_alquid_qxw"
     ]
   },
   "Colombia": {
     "PRE": [
-      "pre_bbva_colombia_alquid", 
+      "pre_bbva_colombia_alquid",
       "pre_bbva_colombia_aqluid_archive" // Nota: Mantenido 'aqluid' según especificación
     ],
     "PRO": [
-      "pro_bbva_colombia_alquid_3", 
+      "pro_bbva_colombia_alquid_3",
       "pro_bbva_colombia_alquid_archive"
     ]
   },
   "New York": {
     "PRE": [
-      "pre_bbva_ny_alquid_archive_olm", 
+      "pre_bbva_ny_alquid_archive_olm",
       "pre_bbva_ny_alquid_olm"
     ],
     "PRO": [
-      "pro_bbva_ny_alquid_archive_qjh", 
+      "pro_bbva_ny_alquid_archive_qjh",
       "pro_bbva_ny_alquid_qjh"
     ]
   },
   "Perú": {
     "PRE": [
-      "pre_bbva_peru_alquid", 
+      "pre_bbva_peru_alquid",
       "pre_bbva_peru_alquid_archive"
     ],
     "PRO": [
-      "pro_bbva_peru_alquid", 
+      "pro_bbva_peru_alquid",
       "pro_bbva_peru_alquid_archive"
     ]
   },
@@ -86,7 +87,7 @@ export const EXPECTED_DATABASES: Record<string, Record<string, string[]>> = {
     "PRO": ["sol-pro-suiza-alquid-gc"]
   },
   "España": {
-    "PRE": [], 
+    "PRE": [],
     "PRO": []
   }
 };

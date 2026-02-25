@@ -1,5 +1,6 @@
-import React, { createContext, useContext, useState, ReactNode } from 'react';
+import React, { createContext, useContext, useState, ReactNode, useEffect } from 'react';
 import { ReportDefinition, RepositoryData, RepositoryFile } from '../types';
+import axios from 'axios';
 
 // Define state structure for each page
 interface PageState<T> {
@@ -16,7 +17,17 @@ export interface LogEntry {
   type: 'INFO' | 'SUCCESS' | 'WARNING' | 'ERROR';
 }
 
+export interface User {
+  email: string;
+  role: 'admin' | 'user';
+}
+
 interface GlobalState {
+  // Auth State
+  user: User | null;
+  setUser: (user: User | null) => void;
+  logout: () => void;
+
   // User Activity Logs
   userLogs: LogEntry[];
   addLog: (module: LogEntry['module'], action: string, details: string, type?: LogEntry['type']) => void;
@@ -50,29 +61,48 @@ interface GlobalState {
 
   // Repository State
   repositoryData: RepositoryData;
-  addRepositoryFile: (region: string, env: string, content: any, fileName: string) => void;
+  repositorySummary: { region: string, env: string, count: number }[];
+  fetchRepositoryFiles: (region: string, env: string) => Promise<void>;
+  fetchRepositorySummary: () => Promise<void>;
+  addRepositoryFile: (region: string, env: string, content: any, fileName: string, comment?: string) => Promise<void>;
+  deleteRepositoryFile: (id: string, region: string, env: string) => Promise<void>;
 }
 
 const GlobalStateContext = createContext<GlobalState | undefined>(undefined);
 
 export const GlobalStateProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
+  // --- AUTH STATE ---
+  const [user, setUser] = useState<User | null>(null);
+
   // --- LOGGING STATE ---
   const [userLogs, setUserLogs] = useState<LogEntry[]>([]);
 
+  useEffect(() => {
+    // Fetch initial logs
+    axios.get('/api/logs').then(res => {
+      setUserLogs(res.data);
+    }).catch(err => console.error('Error fetching logs:', err));
+  }, []);
+
   const addLog = (module: LogEntry['module'], action: string, details: string, type: LogEntry['type'] = 'INFO') => {
-    const newLog: LogEntry = {
-      id: Date.now().toString() + Math.random().toString().slice(2, 5),
+    const newLogData = { module, action, details, type };
+
+    // Optimistic update
+    const tempLog: LogEntry = {
+      id: Date.now().toString(),
       timestamp: new Date().toLocaleTimeString(),
-      module,
-      action,
-      details,
-      type
+      ...newLogData
     };
-    // Add to top of list
-    setUserLogs(prev => [newLog, ...prev]);
+    setUserLogs(prev => [tempLog, ...prev]);
+
+    // Persist to backend
+    axios.post('/api/logs', newLogData).catch(err => console.error('Error saving log:', err));
   };
 
-  const clearLogs = () => setUserLogs([]);
+  const clearLogs = () => {
+    setUserLogs([]);
+    axios.delete('/api/logs').catch(err => console.error('Error clearing logs:', err));
+  };
 
   // --- DOWNLOADER STATE ---
   const [downloadReports, setDownloadReportsState] = useState<PageState<ReportDefinition[]>>({ data: [], fileName: null });
@@ -95,47 +125,107 @@ export const GlobalStateProvider: React.FC<{ children: ReactNode }> = ({ childre
 
   // --- EDITOR STATE ---
   const [editorReports, setEditorReportsState] = useState<PageState<ReportDefinition[]>>({ data: [], fileName: null });
-  
+
   const setEditorReports = (data: ReportDefinition[], fileName: string) => setEditorReportsState({ data, fileName });
   const clearEditorReports = () => setEditorReportsState({ data: [], fileName: null });
 
   // --- REPOSITORY STATE ---
-  // Initialize with empty arrays for standard regions to avoid undefined checks later
-  const initialRegions = ["Argentina", "Colombia", "España", "New York", "Perú", "Suiza"];
-  const initialRepoState: RepositoryData = {};
-  initialRegions.forEach(reg => {
-      initialRepoState[reg] = { "PRE": [], "PRO": [] };
-  });
+  const [repositoryData, setRepositoryDataState] = useState<RepositoryData>({});
+  const [repositorySummary, setRepositorySummary] = useState<{ region: string, env: string, count: number }[]>([]);
 
-  const [repositoryData, setRepositoryData] = useState<RepositoryData>(initialRepoState);
+  const fetchRepositorySummary = async () => {
+    try {
+      const res = await axios.get('/api/repository/summary');
+      if (Array.isArray(res.data)) {
+        setRepositorySummary(res.data);
+      } else {
+        console.warn('Repo summary response is not an array:', res.data);
+        setRepositorySummary([]);
+      }
+    } catch (err) {
+      console.error('Error fetching repo summary:', err);
+      setRepositorySummary([]);
+    }
+  };
 
-  const addRepositoryFile = (region: string, env: string, content: any, fileName: string) => {
-      setRepositoryData(prev => {
-          const newState = { ...prev };
-          if (!newState[region]) newState[region] = { "PRE": [], "PRO": [] };
-          if (!newState[region][env]) newState[region][env] = [];
+  useEffect(() => {
+    fetchRepositorySummary();
+  }, []);
 
-          const currentList = newState[region][env];
-          const newVersion = currentList.length + 1;
+  const fetchRepositoryFiles = async (region: string, env: string) => {
+    try {
+      const res = await axios.get(`/api/repository/${region}/${env}`);
+      setRepositoryDataState(prev => ({
+        ...prev,
+        [region]: {
+          ...(prev[region] || { "PRE": [], "PRO": [] }),
+          [env]: res.data
+        }
+      }));
+    } catch (err) {
+      console.error('Error fetching repo files:', err);
+    }
+  };
 
-          const newFile: RepositoryFile = {
-              id: Date.now().toString(),
-              version: newVersion,
-              fileName: fileName,
-              content: content,
-              uploadedAt: new Date().toLocaleString(),
-              uploadedBy: "Admin User"
-          };
+  const addRepositoryFile = async (region: string, env: string, content: any, fileName: string, comment?: string) => {
+    // Integrity Validation (Phase 17)
+    // Only validate if it's a queries/reports file (has 'report' or 'queries' structure)
+    if (Array.isArray(content) && content.length > 0 && (content[0].report || content[0].queries)) {
+      const { EXPECTED_DATABASES } = await import('../types');
+      const allowedDbs = EXPECTED_DATABASES[region]?.[env] || [];
 
-          // Add to beginning of array (newest first)
-          newState[region][env] = [newFile, ...currentList];
-          return newState;
+      const errors: string[] = [];
+      content.forEach((rep: any) => {
+        if (rep.queries && Array.isArray(rep.queries)) {
+          rep.queries.forEach((q: any) => {
+            if (allowedDbs.length > 0 && !allowedDbs.includes(q.database)) {
+              errors.push(`BD '${q.database}' no permitida para ${region} ${env}.`);
+            }
+          });
+        }
       });
-      addLog('REPOSITORIO', 'NUEVA_VERSION', `v${(repositoryData[region]?.[env]?.length || 0) + 1} subida a ${region} ${env}: ${fileName}`, 'SUCCESS');
+
+      if (errors.length > 0) {
+        const errorMsg = `Error de Integridad de Repositorio: ${errors.slice(0, 3).join(' ')}${errors.length > 3 ? ' ...' : ''}`;
+        addLog('REPOSITORIO', 'ERROR_INTEGRIDAD', errorMsg, 'ERROR');
+        throw new Error(errorMsg);
+      }
+    }
+
+    try {
+      await axios.post('/api/repository', {
+        region,
+        env,
+        filename: fileName,
+        content,
+        uploadedBy: user?.email || "Admin User",
+        comment: comment || ""
+      });
+      // Refresh list
+      await fetchRepositoryFiles(region, env);
+      addLog('REPOSITORIO', 'SUBIDA_EXITOSA', `Archivo ${fileName} subido a ${region}/${env}`, 'SUCCESS');
+    } catch (err) {
+      console.error('Error uploading repo file:', err);
+      throw err;
+    }
+  };
+
+  const deleteRepositoryFile = async (id: string, region: string, env: string) => {
+    try {
+      await axios.delete(`/api/repository/${id}`);
+      // Refresh both data and summary
+      await fetchRepositoryFiles(region, env);
+      await fetchRepositorySummary();
+      addLog('REPOSITORIO', 'ELIMINAR_ARCHIVO', `Archivo eliminado ID: ${id}`, 'WARNING');
+    } catch (err) {
+      console.error('Error deleting repo file:', err);
+      throw err;
+    }
   };
 
   return (
     <GlobalStateContext.Provider value={{
+      user, setUser,
       userLogs, addLog, clearLogs,
 
       downloadReports, downloadConfig, downloadRegion, downloadEnv, downloadLoadId,
@@ -150,8 +240,12 @@ export const GlobalStateProvider: React.FC<{ children: ReactNode }> = ({ childre
       setEditorReports,
       clearEditorReports,
 
-      repositoryData,
-      addRepositoryFile
+      repositoryData, repositorySummary, fetchRepositoryFiles, fetchRepositorySummary,
+      addRepositoryFile, deleteRepositoryFile,
+      logout: () => {
+        setUser(null);
+        addLog('SISTEMA', 'LOGOUT', 'Sesión cerrada por el usuario', 'INFO');
+      }
     }}>
       {children}
     </GlobalStateContext.Provider>
