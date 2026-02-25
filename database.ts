@@ -28,7 +28,8 @@ db.exec(`
 
   CREATE TABLE IF NOT EXISTS repository_files (
     id TEXT PRIMARY KEY,
-    region TEXT,
+    client TEXT,
+    geography TEXT,
     env TEXT,
     filename TEXT,
     version INTEGER,
@@ -56,6 +57,14 @@ try {
     // already exists
   }
 }
+// Migration: Update repository_files schema from region to client/geography
+try {
+  db.exec("ALTER TABLE repository_files ADD COLUMN client TEXT");
+  db.exec("ALTER TABLE repository_files ADD COLUMN geography TEXT");
+  console.log("Migration: Added 'client' and 'geography' columns to repository_files");
+} catch (e: any) {
+  // already exists or already migrated
+}
 
 // Seed initial admin user if not exists
 const adminEmail = 'diego.merino@nfq.es';
@@ -80,11 +89,11 @@ export const queries = {
   getUserByEmail: db.prepare('SELECT * FROM users WHERE email = ?'),
 
   addRepoFile: db.prepare(`
-    INSERT INTO repository_files (id, region, env, filename, version, content, uploaded_by, comment)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO repository_files (id, client, geography, env, filename, version, content, uploaded_by, comment)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
   `),
-  getRepoFiles: db.prepare('SELECT * FROM repository_files WHERE region = ? AND env = ? ORDER BY version DESC'),
-  getLatestVersion: db.prepare('SELECT MAX(version) as maxV FROM repository_files WHERE region = ? AND env = ? AND filename = ?'),
-  getRepoSummary: db.prepare('SELECT region, env, COUNT(*) as count FROM repository_files GROUP BY region, env'),
+  getRepoFiles: db.prepare('SELECT * FROM repository_files WHERE client = ? AND geography IS ? AND env = ? ORDER BY version DESC'),
+  getLatestVersion: db.prepare('SELECT MAX(version) as maxV FROM repository_files WHERE client = ? AND geography IS ? AND env = ? AND filename = ?'),
+  getRepoSummary: db.prepare('SELECT client, geography, env, COUNT(*) as count FROM repository_files GROUP BY client, geography, env'),
   deleteRepoFile: db.prepare('DELETE FROM repository_files WHERE id = ?'),
 };

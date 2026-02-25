@@ -154,14 +154,18 @@ export const GlobalStateProvider: React.FC<{ children: ReactNode }> = ({ childre
     fetchRepositorySummary();
   }, []);
 
-  const fetchRepositoryFiles = async (region: string, env: string) => {
+  const fetchRepositoryFiles = async (client: string, geography: string | null, env: string) => {
     try {
-      const res = await axios.get(`/api/repository/${region}/${env}`);
+      const geographyParam = geography || 'null';
+      const res = await axios.get(`/api/repository/${client}/${geographyParam}/${env}`);
       setRepositoryDataState(prev => ({
         ...prev,
-        [region]: {
-          ...(prev[region] || { "PRE": [], "PRO": [] }),
-          [env]: res.data
+        [client]: {
+          ...(prev[client] || {}),
+          [geography || 'null']: {
+            ...(prev[client]?.[geography || 'null'] || {}),
+            [env]: res.data
+          }
         }
       }));
     } catch (err) {
@@ -169,19 +173,19 @@ export const GlobalStateProvider: React.FC<{ children: ReactNode }> = ({ childre
     }
   };
 
-  const addRepositoryFile = async (region: string, env: string, content: any, fileName: string, comment?: string) => {
-    // Integrity Validation (Phase 17)
-    // Only validate if it's a queries/reports file (has 'report' or 'queries' structure)
+  const addRepositoryFile = async (client: string, geography: string | null, env: string, content: any, fileName: string, comment?: string) => {
+    // Integrity Validation
     if (Array.isArray(content) && content.length > 0 && (content[0].report || content[0].queries)) {
       const { EXPECTED_DATABASES } = await import('../types');
-      const allowedDbs = EXPECTED_DATABASES[region]?.[env] || [];
+      const geographyKey = geography || 'general';
+      const allowedDbs = EXPECTED_DATABASES[client as any]?.[geographyKey]?.[env] || [];
 
       const errors: string[] = [];
       content.forEach((rep: any) => {
         if (rep.queries && Array.isArray(rep.queries)) {
           rep.queries.forEach((q: any) => {
             if (allowedDbs.length > 0 && !allowedDbs.includes(q.database)) {
-              errors.push(`BD '${q.database}' no permitida para ${region} ${env}.`);
+              errors.push(`BD '${q.database}' no permitida para ${client} ${geography || 'sin geografía'} ${env}.`);
             }
           });
         }
@@ -196,7 +200,8 @@ export const GlobalStateProvider: React.FC<{ children: ReactNode }> = ({ childre
 
     try {
       await axios.post('/api/repository', {
-        region,
+        client,
+        geography,
         env,
         filename: fileName,
         content,
@@ -204,19 +209,19 @@ export const GlobalStateProvider: React.FC<{ children: ReactNode }> = ({ childre
         comment: comment || ""
       });
       // Refresh list
-      await fetchRepositoryFiles(region, env);
-      addLog('REPOSITORIO', 'SUBIDA_EXITOSA', `Archivo ${fileName} subido a ${region}/${env}`, 'SUCCESS');
+      await fetchRepositoryFiles(client, geography, env);
+      addLog('REPOSITORIO', 'SUBIDA_EXITOSA', `Archivo ${fileName} subido a ${client}/${geography || 'sin geografía'}/${env}`, 'SUCCESS');
     } catch (err) {
       console.error('Error uploading repo file:', err);
       throw err;
     }
   };
 
-  const deleteRepositoryFile = async (id: string, region: string, env: string) => {
+  const deleteRepositoryFile = async (id: string, client: string, geography: string | null, env: string) => {
     try {
       await axios.delete(`/api/repository/${id}`);
       // Refresh both data and summary
-      await fetchRepositoryFiles(region, env);
+      await fetchRepositoryFiles(client, geography, env);
       await fetchRepositorySummary();
       addLog('REPOSITORIO', 'ELIMINAR_ARCHIVO', `Archivo eliminado ID: ${id}`, 'WARNING');
     } catch (err) {

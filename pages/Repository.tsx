@@ -2,22 +2,22 @@ import React, { useRef, useState, useMemo, useEffect } from 'react';
 import { Archive, Upload, FileJson, Download, ChevronRight, Folder, Database, X, ArrowLeft, GitCompare, ArrowRightLeft, Check, AlertTriangle, Plus, Minus, Calendar, User, Clock, ShieldCheck, XCircle, FileText, Github, Save, Trash2 } from 'lucide-react';
 import PageHeader from '../components/PageHeader';
 import { useGlobalState } from '../context/GlobalStateContext';
-import { RepositoryFile, ReportDefinition, QueryDefinition, EXPECTED_DATABASES } from '../types';
+import { RepositoryFile, ReportDefinition, QueryDefinition, EXPECTED_DATABASES, Client, Geography, CLIENT_GEOGRAPHIES } from '../types';
 import { formatSqlBonito } from '../utils/sqlFormatter';
 import QueryValidatorModal, { InvalidQuery } from '../components/QueryValidatorModal';
 import { Octokit } from 'octokit';
 
-// --- Helper Types for Diff ---
+// Helper Types
 type DiffStatus = 'ADDED' | 'REMOVED' | 'MODIFIED' | 'UNCHANGED';
 
 interface QueryDiff {
-    key: string; // ReportName + / + Filename
+    key: string;
     report: string;
     filename: string;
     status: DiffStatus;
     oldQuery?: QueryDefinition;
     newQuery?: QueryDefinition;
-    changes: string[]; // List of changed fields (e.g., 'sql', 'table')
+    changes: string[];
 }
 
 interface ValidationError {
@@ -35,44 +35,53 @@ interface ValidationState {
     contentToUpload: ReportDefinition[] | null;
 }
 
-// Map regions to flag image URLs (using a stable CDN for flags)
-const getFlagUrl = (region: string) => {
-    switch (region) {
-        case "Argentina": return "https://flagcdn.com/w160/ar.png";
-        case "Colombia": return "https://flagcdn.com/w160/co.png";
-        case "España": return "https://flagcdn.com/w160/es.png";
-        case "Perú": return "https://flagcdn.com/w160/pe.png";
-        case "Suiza": return "https://flagcdn.com/w160/ch.png";
-        case "New York": return "https://flagcdn.com/w160/us.png"; // USA flag for New York
-        default: return "";
-    }
+// Get client logo path
+const getClientLogo = (client: Client) => {
+    return `/imagenes/${client}.${client === 'Banca March' ? 'png' : 'jpg'}`;
+};
+
+// Get geography flag
+const getGeographyFlag = (geography: Geography) => {
+    const flagMap: Record<Geography, string> = {
+        "Argentina": "https://flagcdn.com/w160/ar.png",
+        "Colombia": "https://flagcdn.com/w160/co.png",
+        "España": "https://flagcdn.com/w160/es.png",
+        "Perú": "https://flagcdn.com/w160/pe.png",
+        "Suiza": "https://flagcdn.com/w160/ch.png",
+        "Nueva York": "https://flagcdn.com/w160/us.png",
+        "Luxemburgo": "https://flagcdn.com/w160/lu.png"
+    };
+    return flagMap[geography] || "";
 };
 
 const Repository: React.FC = () => {
     const { repositoryData, repositorySummary, fetchRepositoryFiles, fetchRepositorySummary, addRepositoryFile, deleteRepositoryFile, addLog, user } = useGlobalState();
-    const regions = ["Argentina", "Colombia", "España", "New York", "Perú", "Suiza"];
+    const clients: Client[] = ["Banca March", "Bankinter", "BBVA", "Pichincha"];
     const envs = ["PRE", "PRO"];
 
-    // Navigation State
-    const [selectedRegion, setSelectedRegion] = useState<string | null>(null);
+    // Navigation State: client -> geography (optional) -> env
+    const [selectedClient, setSelectedClient] = useState<Client | null>(null);
+    const [selectedGeography, setSelectedGeography] = useState<Geography | null>(null);
     const [selectedEnv, setSelectedEnv] = useState<string | null>(null);
 
-    // Fetch repository files when selection changes
+    // Fetch on selection change
     useEffect(() => {
-        if (selectedRegion && selectedEnv) {
-            fetchRepositoryFiles(selectedRegion, selectedEnv);
+        if (selectedClient && selectedGeography && selectedEnv) {
+            fetchRepositoryFiles(selectedClient, selectedGeography, selectedEnv);
+        } else if (selectedClient && !CLIENT_GEOGRAPHIES[selectedClient] && selectedEnv) {
+            fetchRepositoryFiles(selectedClient, null, selectedEnv);
         }
-    }, [selectedRegion, selectedEnv]);
+    }, [selectedClient, selectedGeography, selectedEnv]);
 
-    // State for Comparison
+    // Comparison State
     const [selectedForCompare, setSelectedForCompare] = useState<string[]>([]);
     const [isCompareModalOpen, setIsCompareModalOpen] = useState(false);
     const [versionComment, setVersionComment] = useState("");
 
-    // State for File Details Modal
+    // File Details Modal
     const [selectedFile, setSelectedFile] = useState<RepositoryFile | null>(null);
 
-    // State for Validation Modal
+    // Validation Modal
     const [validation, setValidation] = useState<ValidationState>({
         isOpen: false,
         status: 'IDLE',
@@ -82,11 +91,11 @@ const Repository: React.FC = () => {
         contentToUpload: null
     });
 
-    // Dynamic Reference Validator State
+    // Dynamic Reference Validator
     const [invalidQueries, setInvalidQueries] = useState<InvalidQuery[]>([]);
     const [isValidatorOpen, setIsValidatorOpen] = useState(false);
 
-    // GitHub Integration State
+    // GitHub Integration
     const [githubToken, setGithubToken] = useState<string | null>(null);
     const [githubUser, setGithubUser] = useState<any>(null);
     const [githubRepos, setGithubRepos] = useState<any[]>([]);
@@ -96,10 +105,9 @@ const Repository: React.FC = () => {
     const [isGithubModalOpen, setIsGithubModalOpen] = useState(false);
     const [isPushing, setIsPushing] = useState(false);
 
-    // Ref for the file input - Mounted at top level
     const fileInputRef = useRef<HTMLInputElement>(null);
 
-    // Listen for GitHub Auth Success
+    // GitHub Auth
     useEffect(() => {
         const handleMessage = (event: MessageEvent) => {
             if (event.data?.type === 'GITHUB_AUTH_SUCCESS' && event.data.token) {
@@ -111,7 +119,6 @@ const Repository: React.FC = () => {
         return () => window.removeEventListener('message', handleMessage);
     }, [addLog]);
 
-    // Fetch User and Repos when token is set
     useEffect(() => {
         if (githubToken) {
             const octokit = new Octokit({ auth: githubToken });
@@ -149,8 +156,7 @@ const Repository: React.FC = () => {
             return;
         }
         setSelectedFile(file);
-        // Default path: region/env/filename.json
-        setFilePath(`${selectedRegion}/${selectedEnv}/${file.fileName}`);
+        setFilePath(`${selectedClient}/${selectedGeography || 'general'}/${selectedEnv}/${file.fileName}`);
         setIsGithubModalOpen(true);
     };
 
@@ -164,7 +170,6 @@ const Repository: React.FC = () => {
             const content = JSON.stringify(selectedFile.content, null, 4);
             const message = `Update ${selectedFile.fileName} (v${selectedFile.version})`;
 
-            // Check if file exists to get SHA
             let sha;
             try {
                 const { data } = await octokit.rest.repos.getContent({
@@ -177,7 +182,7 @@ const Repository: React.FC = () => {
                     sha = data.sha;
                 }
             } catch (e) {
-                // File doesn't exist, that's fine
+                // File doesn't exist
             }
 
             await octokit.rest.repos.createOrUpdateFileContents({
@@ -185,7 +190,7 @@ const Repository: React.FC = () => {
                 repo,
                 path: filePath,
                 message,
-                content: btoa(unescape(encodeURIComponent(content))), // Base64 encode handling utf8
+                content: btoa(unescape(encodeURIComponent(content))),
                 branch: selectedBranch,
                 sha
             });
@@ -202,15 +207,14 @@ const Repository: React.FC = () => {
     };
 
     const validateAndSetState = (jsonContent: ReportDefinition[], fileName: string) => {
-        // 1. Validación de Estructura Básica
         if (!Array.isArray(jsonContent)) {
             alert("El archivo no parece ser un array de reportes válido.");
             addLog('REPOSITORIO', 'ERROR_SUBIDA', `Formato JSON incorrecto: ${fileName}`, 'ERROR');
             return;
         }
 
-        // 2. Validación Estricta de Bases de Datos por Geografía/Entorno
-        const allowedDbs = EXPECTED_DATABASES[selectedRegion!]?.[selectedEnv!] || [];
+        const geographyKey = selectedGeography || 'general';
+        const allowedDbs = EXPECTED_DATABASES[selectedClient!]?.[geographyKey]?.[selectedEnv!] || [];
         const foundErrors: ValidationError[] = [];
         let queryCount = 0;
 
@@ -227,7 +231,6 @@ const Repository: React.FC = () => {
             });
         });
 
-        // 3. Set Validation State instead of immediate upload
         if (foundErrors.length > 0) {
             setValidation({
                 isOpen: true,
@@ -235,7 +238,7 @@ const Repository: React.FC = () => {
                 fileName: fileName,
                 totalQueries: queryCount,
                 errors: foundErrors,
-                contentToUpload: null // Block upload
+                contentToUpload: null
             });
             addLog('REPOSITORIO', 'INTENTO_FALLIDO', `Validación fallida para ${fileName} (${foundErrors.length} errores)`, 'WARNING');
         } else {
@@ -245,16 +248,15 @@ const Repository: React.FC = () => {
                 fileName: fileName,
                 totalQueries: queryCount,
                 errors: [],
-                contentToUpload: jsonContent // Ready to upload
+                contentToUpload: jsonContent
             });
         }
     };
 
     const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-        // Access state directly from closure or verify state is set
-        if (!selectedRegion || !selectedEnv) {
-            alert("Error de estado: Región o entorno no seleccionados.");
-            if (e.target) e.target.value = ''; // Reset
+        if (!selectedClient || !selectedEnv || (CLIENT_GEOGRAPHIES[selectedClient] && !selectedGeography)) {
+            alert("Error de estado: Cliente, geografía (si aplica) y entorno no seleccionados.");
+            if (e.target) e.target.value = '';
             return;
         }
 
@@ -267,7 +269,6 @@ const Repository: React.FC = () => {
                 const content = event.target?.result as string;
                 const jsonContent: ReportDefinition[] = JSON.parse(content);
 
-                // 0. Dynamic Reference Check (%s.%s)
                 const invalidDynamicQueries: InvalidQuery[] = [];
                 jsonContent.forEach((repo, rIdx) => {
                     if (repo.queries && Array.isArray(repo.queries)) {
@@ -289,7 +290,7 @@ const Repository: React.FC = () => {
                     setValidation({
                         ...validation,
                         fileName: file.name,
-                        contentToUpload: jsonContent // Store pending content here
+                        contentToUpload: jsonContent
                     });
                     setIsValidatorOpen(true);
                     addLog('REPOSITORIO', 'VALIDACION_DINAMICA', `Se detectaron ${invalidDynamicQueries.length} queries con referencias absolutas.`, 'WARNING');
@@ -305,7 +306,6 @@ const Repository: React.FC = () => {
         };
         reader.readAsText(file);
 
-        // IMPORTANT: Reset value to allow re-uploading same file if it failed previously
         e.target.value = '';
     };
 
@@ -323,21 +323,21 @@ const Repository: React.FC = () => {
         setIsValidatorOpen(false);
         setInvalidQueries([]);
 
-        // Now proceed to standard validation
         validateAndSetState(newJson, validation.fileName);
     };
 
     const confirmUpload = async () => {
-        if (validation.contentToUpload && selectedRegion && selectedEnv) {
+        if (validation.contentToUpload && selectedClient && selectedEnv) {
             try {
                 await addRepositoryFile(
-                    selectedRegion,
+                    selectedClient,
+                    selectedGeography || null,
                     selectedEnv,
                     validation.contentToUpload,
                     validation.fileName,
                     versionComment
                 );
-                addLog('REPOSITORIO', 'SUBIDA_EXITOSA', `Archivo cargado en ${selectedRegion} ${selectedEnv}: ${validation.fileName}`, 'SUCCESS');
+                addLog('REPOSITORIO', 'SUBIDA_EXITOSA', `Archivo cargado en ${selectedClient} ${selectedGeography || 'sin geografía'} ${selectedEnv}: ${validation.fileName}`, 'SUCCESS');
                 setValidation({ ...validation, isOpen: false });
                 setVersionComment("");
             } catch (err) {
@@ -349,8 +349,6 @@ const Repository: React.FC = () => {
     const triggerUpload = () => {
         if (fileInputRef.current) {
             fileInputRef.current.click();
-        } else {
-            console.error("File input ref is null");
         }
     };
 
@@ -367,22 +365,23 @@ const Repository: React.FC = () => {
         addLog('REPOSITORIO', 'DESCARGA_VERSION', `Versión ${file.version} descargada`, 'INFO');
     };
 
-    // --- Comparison Logic ---
-
     const toggleCompareSelection = (fileId: string, e: React.ChangeEvent<HTMLInputElement>) => {
         e.stopPropagation();
         setSelectedForCompare(prev => {
             if (prev.includes(fileId)) return prev.filter(id => id !== fileId);
-            if (prev.length >= 2) return [prev[1], fileId]; // Keep max 2, FIFO
+            if (prev.length >= 2) return [prev[1], fileId];
             return [...prev, fileId];
         });
     };
 
     const generateDiff = useMemo(() => {
-        if (selectedForCompare.length !== 2 || !selectedRegion || !selectedEnv) return null;
+        if (selectedForCompare.length !== 2 || !selectedClient || !selectedEnv) return null;
 
-        const files = repositoryData[selectedRegion][selectedEnv].filter(f => selectedForCompare.includes(f.id));
-        // Sort by version ascending (Oldest vs Newest)
+        const geographyKey = selectedGeography || 'null';
+        const files = repositoryData[selectedClient]?.[geographyKey]?.[selectedEnv]?.filter(f => selectedForCompare.includes(f.id)) || [];
+        
+        if (files.length !== 2) return null;
+
         const sortedFiles = files.sort((a, b) => a.version - b.version);
         const oldFile = sortedFiles[0];
         const newFile = sortedFiles[1];
@@ -390,7 +389,6 @@ const Repository: React.FC = () => {
         const oldData: ReportDefinition[] = Array.isArray(oldFile.content) ? oldFile.content : [];
         const newData: ReportDefinition[] = Array.isArray(newFile.content) ? newFile.content : [];
 
-        // Flatten Data into Maps for easy lookup
         const flattenQueries = (data: ReportDefinition[]) => {
             const map = new Map<string, QueryDefinition>();
             data.forEach(r => {
@@ -417,13 +415,11 @@ const Repository: React.FC = () => {
             } else if (oldQ && !newQ) {
                 diffResults.push({ key, report, filename, status: 'REMOVED', oldQuery: oldQ, changes: [] });
             } else if (oldQ && newQ) {
-                // Check fields
                 const changes: string[] = [];
                 if (oldQ.database !== newQ.database) changes.push('database');
                 if (oldQ.schema !== newQ.schema) changes.push('schema');
                 if (oldQ.table !== newQ.table) changes.push('table');
 
-                // Check SQL (normalize whitespace/formatting)
                 const normOld = formatSqlBonito(oldQ.sql);
                 const normNew = formatSqlBonito(newQ.sql);
                 if (normOld !== normNew) changes.push('sql');
@@ -440,15 +436,13 @@ const Repository: React.FC = () => {
             oldVersion: oldFile.version,
             newVersion: newFile.version,
             diffs: diffResults.sort((a, b) => {
-                // Sort: Modified -> Added -> Removed -> Unchanged
                 const score = (s: DiffStatus) => s === 'MODIFIED' ? 0 : s === 'ADDED' ? 1 : s === 'REMOVED' ? 2 : 3;
                 return score(a.status) - score(b.status);
             })
         };
 
-    }, [selectedForCompare, repositoryData, selectedRegion, selectedEnv]);
+    }, [selectedForCompare, repositoryData, selectedClient, selectedGeography, selectedEnv]);
 
-    // --- SQL Line Diff Helper ---
     const SqlDiffView = ({ oldSql, newSql }: { oldSql: string, newSql: string }) => {
         const oldLines = formatSqlBonito(oldSql).split('\n');
         const newLines = formatSqlBonito(newSql).split('\n');
@@ -487,8 +481,8 @@ const Repository: React.FC = () => {
                     </div>
                 </div>
             </div>
-        )
-    }
+        );
+    };
 
     return (
         <div className="h-full flex flex-col animate-fade-in relative bg-gray-50/50">
@@ -507,7 +501,6 @@ const Repository: React.FC = () => {
                 }
             />
 
-            {/* Hidden File Input - MOVED TO TOP LEVEL to avoid ref loss on conditional rendering */}
             <input
                 type="file"
                 accept=".json"
@@ -516,44 +509,56 @@ const Repository: React.FC = () => {
                 onChange={handleFileUpload}
             />
 
-            {/* Main Content Area - Removed max-w and mx-auto to align left, added mt-2 */}
             <div className="flex-1 rounded-xl overflow-hidden flex flex-col relative w-full">
 
-                {/* Breadcrumb Navigation - Added mt-6 for spacing */}
+                {/* Breadcrumb Navigation */}
                 <div className="px-6 py-4 flex items-center justify-between mb-4 mt-6">
                     <div className="flex items-center gap-3">
                         <button
                             onClick={() => {
                                 if (selectedEnv) setSelectedEnv(null);
-                                else if (selectedRegion) setSelectedRegion(null);
+                                else if (selectedGeography) setSelectedGeography(null);
+                                else if (selectedClient) setSelectedClient(null);
                                 setSelectedForCompare([]);
                             }}
-                            disabled={!selectedRegion}
+                            disabled={!selectedClient}
                             className={`
-                    p-2 rounded-full transition-colors 
-                    ${!selectedRegion ? 'text-gray-300 cursor-default' : 'text-alquid-navy hover:bg-white hover:shadow-sm'}
-                  `}
+                                p-2 rounded-full transition-colors 
+                                ${!selectedClient ? 'text-gray-300 cursor-default' : 'text-alquid-navy hover:bg-white hover:shadow-sm'}
+                            `}
                         >
                             <ArrowLeft size={20} />
                         </button>
 
                         <nav className="flex items-center text-lg">
                             <span
-                                onClick={() => { setSelectedRegion(null); setSelectedEnv(null); }}
-                                className={`cursor-pointer transition-colors font-medium ${!selectedRegion ? 'text-alquid-navy font-bold' : 'text-gray-400 hover:text-alquid-blue'}`}
+                                onClick={() => { setSelectedClient(null); setSelectedGeography(null); setSelectedEnv(null); }}
+                                className={`cursor-pointer transition-colors font-medium ${!selectedClient ? 'text-alquid-navy font-bold' : 'text-gray-400 hover:text-alquid-blue'}`}
                             >
                                 Inicio
                             </span>
 
-                            {selectedRegion && (
+                            {selectedClient && (
+                                <>
+                                    <ChevronRight size={18} className="text-gray-300 mx-2" />
+                                    <span
+                                        onClick={() => { setSelectedGeography(null); setSelectedEnv(null); }}
+                                        className={`cursor-pointer transition-colors font-medium ${!selectedGeography && !selectedEnv ? 'text-alquid-navy font-bold' : 'text-gray-400 hover:text-alquid-blue'}`}
+                                    >
+                                        {selectedClient}
+                                    </span>
+                                </>
+                            )}
+
+                            {selectedGeography && (
                                 <>
                                     <ChevronRight size={18} className="text-gray-300 mx-2" />
                                     <span
                                         onClick={() => setSelectedEnv(null)}
                                         className={`flex items-center gap-2 cursor-pointer transition-colors font-medium ${!selectedEnv ? 'text-alquid-navy font-bold' : 'text-gray-400 hover:text-alquid-blue'}`}
                                     >
-                                        <img src={getFlagUrl(selectedRegion)} alt="" className="w-5 h-5 rounded-full object-cover shadow-sm" />
-                                        {selectedRegion}
+                                        <img src={getGeographyFlag(selectedGeography)} alt="" className="w-5 h-5 rounded-full object-cover shadow-sm" />
+                                        {selectedGeography}
                                     </span>
                                 </>
                             )}
@@ -569,17 +574,16 @@ const Repository: React.FC = () => {
                         </nav>
                     </div>
 
-                    {/* Compare Action Button - Visible only in file list */}
-                    {selectedRegion && selectedEnv && (
+                    {selectedClient && selectedGeography && selectedEnv && (
                         <button
                             onClick={() => setIsCompareModalOpen(true)}
                             disabled={selectedForCompare.length !== 2}
                             className={`
-                        flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-bold transition-all shadow-sm
-                        ${selectedForCompare.length === 2
+                                flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-bold transition-all shadow-sm
+                                ${selectedForCompare.length === 2
                                     ? 'bg-alquid-navy text-white hover:bg-opacity-90 hover:-translate-y-0.5'
                                     : 'bg-white text-gray-400 border border-gray-200 cursor-not-allowed'}
-                    `}
+                            `}
                         >
                             <GitCompare size={18} />
                             Comparar ({selectedForCompare.length})
@@ -589,35 +593,83 @@ const Repository: React.FC = () => {
 
                 <div className="flex-1 px-6 pb-6 overflow-y-auto custom-scrollbar">
 
-                    {/* VIEW 1: REGIONS - REDESIGNED */}
-                    {!selectedRegion && (
+                    {/* LEVEL 1: CLIENTS */}
+                    {!selectedClient && (
                         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 animate-fade-in">
-                            {regions.map(region => {
+                            {clients.map(client => {
+                                const hasGeographies = CLIENT_GEOGRAPHIES[client];
                                 const summaryArray = Array.isArray(repositorySummary) ? repositorySummary : [];
                                 const totalFiles = summaryArray
-                                    .filter(s => s.region.toLowerCase().trim() === region.toLowerCase().trim())
+                                    .filter(s => s.client === client)
                                     .reduce((acc, s) => acc + s.count, 0);
+
                                 return (
                                     <div
-                                        key={region}
-                                        onClick={() => setSelectedRegion(region)}
+                                        key={client}
+                                        onClick={() => setSelectedClient(client)}
                                         className="bg-white rounded-2xl p-6 shadow-sm border border-gray-200/60 hover:shadow-xl hover:border-alquid-blue/30 cursor-pointer transition-all group relative overflow-hidden flex flex-col justify-between h-48"
                                     >
-                                        {/* Header */}
                                         <div className="flex items-start justify-between">
-                                            <h3 className="text-xl font-bold text-gray-800 group-hover:text-alquid-navy transition-colors">{region}</h3>
+                                            <h3 className="text-xl font-bold text-gray-800 group-hover:text-alquid-navy transition-colors">{client}</h3>
                                             <img
-                                                src={getFlagUrl(region)}
-                                                alt={region}
+                                                src={getClientLogo(client)}
+                                                alt={client}
+                                                className="w-12 h-12 rounded-full object-cover shadow-md border-2 border-white group-hover:scale-110 transition-transform duration-300"
+                                                onError={(e) => {
+                                                    (e.target as HTMLImageElement).src = 'https://via.placeholder.com/48?text=' + client.substring(0, 2).toUpperCase();
+                                                }}
+                                            />
+                                        </div>
+
+                                        <div>
+                                            <div className="flex items-center gap-2 text-sm text-gray-500 mb-4">
+                                                <Folder size={16} className="text-gray-400" />
+                                                <span>{totalFiles} archivos en total</span>
+                                            </div>
+
+                                            <div className="flex items-center justify-between mt-auto pt-4 border-t border-gray-50">
+                                                <span className="text-xs font-bold text-alquid-blue uppercase tracking-wider group-hover:underline">
+                                                    {hasGeographies ? 'Ver Geografías' : 'Ver Entornos'}
+                                                </span>
+                                                <div className="w-8 h-8 rounded-full bg-gray-50 flex items-center justify-center text-gray-400 group-hover:bg-alquid-blue group-hover:text-white transition-all">
+                                                    <ChevronRight size={16} />
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                );
+                            })}
+                        </div>
+                    )}
+
+                    {/* LEVEL 2: GEOGRAPHIES (only for clients with geographies) */}
+                    {selectedClient && CLIENT_GEOGRAPHIES[selectedClient] && !selectedGeography && (
+                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 animate-fade-in">
+                            {(CLIENT_GEOGRAPHIES[selectedClient] || []).map(geography => {
+                                const summaryArray = Array.isArray(repositorySummary) ? repositorySummary : [];
+                                const totalFiles = summaryArray
+                                    .filter(s => s.client === selectedClient && s.geography === geography)
+                                    .reduce((acc, s) => acc + s.count, 0);
+
+                                return (
+                                    <div
+                                        key={geography}
+                                        onClick={() => setSelectedGeography(geography)}
+                                        className="bg-white rounded-2xl p-6 shadow-sm border border-gray-200/60 hover:shadow-xl hover:border-alquid-blue/30 cursor-pointer transition-all group relative overflow-hidden flex flex-col justify-between h-48"
+                                    >
+                                        <div className="flex items-start justify-between">
+                                            <h3 className="text-xl font-bold text-gray-800 group-hover:text-alquid-navy transition-colors">{geography}</h3>
+                                            <img
+                                                src={getGeographyFlag(geography)}
+                                                alt={geography}
                                                 className="w-12 h-12 rounded-full object-cover shadow-md border-2 border-white group-hover:scale-110 transition-transform duration-300"
                                             />
                                         </div>
 
-                                        {/* Content */}
                                         <div>
                                             <div className="flex items-center gap-2 text-sm text-gray-500 mb-4">
                                                 <Folder size={16} className="text-gray-400" />
-                                                <span>{totalFiles} Archivos en total</span>
+                                                <span>{totalFiles} archivos en total</span>
                                             </div>
 
                                             <div className="flex items-center justify-between mt-auto pt-4 border-t border-gray-50">
@@ -628,23 +680,20 @@ const Repository: React.FC = () => {
                                             </div>
                                         </div>
                                     </div>
-                                )
+                                );
                             })}
                         </div>
                     )}
 
-                    {/* VIEW 2: ENVIRONMENTS - CONTROL PANEL REDESIGN */}
-                    {selectedRegion && !selectedEnv && (
+                    {/* LEVEL 3: ENVIRONMENTS */}
+                    {selectedClient && !CLIENT_GEOGRAPHIES[selectedClient] && !selectedEnv && (
                         <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 mt-4 animate-fade-in">
                             {envs.map(env => {
                                 const summaryArray = Array.isArray(repositorySummary) ? repositorySummary : [];
-                                const summary = summaryArray.find(s =>
-                                    s.region.toLowerCase().trim() === selectedRegion.toLowerCase().trim() &&
-                                    s.env.toUpperCase().trim() === env.toUpperCase().trim()
-                                );
+                                const summary = summaryArray.find(s => s.client === selectedClient && !s.geography && s.env === env);
                                 const filesCount = summary ? summary.count : 0;
-                                const files = (repositoryData && repositoryData[selectedRegion]) ? (repositoryData[selectedRegion][env] || []) : [];
-                                const latestFile = files[0]; // Assuming sorted by newest first
+                                const files = repositoryData?.[selectedClient]?.['null']?.[env] || [];
+                                const latestFile = files[0];
                                 const isPro = env === 'PRO';
 
                                 return (
@@ -652,36 +701,28 @@ const Repository: React.FC = () => {
                                         key={env}
                                         onClick={() => setSelectedEnv(env)}
                                         className={`
-                                    relative p-0 rounded-3xl border cursor-pointer transition-all hover:shadow-2xl hover:-translate-y-1 overflow-hidden group
-                                    ${isPro
-                                                ? 'border-blue-100 bg-white hover:border-blue-300'
-                                                : 'border-orange-100 bg-white hover:border-orange-300'
-                                            }
-                                `}
+                                            relative p-0 rounded-3xl border cursor-pointer transition-all hover:shadow-2xl hover:-translate-y-1 overflow-hidden group
+                                            ${isPro ? 'border-blue-100 bg-white hover:border-blue-300' : 'border-orange-100 bg-white hover:border-orange-300'}
+                                        `}
                                     >
-                                        {/* Decorative Background Blur */}
                                         <div className={`absolute -top-10 -right-10 w-40 h-40 rounded-full blur-3xl opacity-20 ${isPro ? 'bg-blue-500' : 'bg-orange-500'}`}></div>
 
                                         <div className="p-8 relative z-10">
                                             <div className="flex items-center justify-between mb-8">
                                                 <div>
-                                                    <h3 className={`text-4xl font-black tracking-tight ${isPro ? 'text-gray-800' : 'text-gray-800'}`}>
-                                                        {env}
-                                                    </h3>
+                                                    <h3 className="text-4xl font-black tracking-tight text-gray-800">{env}</h3>
                                                     <p className={`text-sm font-medium mt-1 ${isPro ? 'text-blue-500' : 'text-orange-500'}`}>
                                                         {isPro ? "Entorno de Producción" : "Entorno de Pre-producción"}
                                                     </p>
                                                 </div>
-                                                {/* Glassmorphism Icon */}
                                                 <div className={`
-                                              w-16 h-16 rounded-2xl flex items-center justify-center shadow-lg backdrop-blur-md bg-white/50 border border-white/50
-                                              ${isPro ? 'text-blue-600' : 'text-orange-600'}
-                                          `}>
+                                                    w-16 h-16 rounded-2xl flex items-center justify-center shadow-lg backdrop-blur-md bg-white/50 border border-white/50
+                                                    ${isPro ? 'text-blue-600' : 'text-orange-600'}
+                                                `}>
                                                     <Database size={32} />
                                                 </div>
                                             </div>
 
-                                            {/* Metadata Stats */}
                                             <div className="space-y-3 mb-8">
                                                 <div className="flex items-center justify-between text-sm p-3 rounded-xl bg-gray-50 border border-gray-100">
                                                     <div className="flex items-center gap-2 text-gray-500">
@@ -710,27 +751,105 @@ const Repository: React.FC = () => {
                                             </div>
 
                                             <div className={`
-                                          flex items-center justify-center gap-2 py-3 rounded-xl font-bold text-sm transition-colors
-                                          ${isPro
-                                                    ? 'bg-blue-50 text-blue-600 group-hover:bg-blue-600 group-hover:text-white'
-                                                    : 'bg-orange-50 text-orange-600 group-hover:bg-orange-500 group-hover:text-white'}
-                                      `}>
+                                                flex items-center justify-center gap-2 py-3 rounded-xl font-bold text-sm transition-colors
+                                                ${isPro ? 'bg-blue-50 text-blue-600 group-hover:bg-blue-600 group-hover:text-white' : 'bg-orange-50 text-orange-600 group-hover:bg-orange-500 group-hover:text-white'}
+                                            `}>
                                                 Gestionar Archivos <ChevronRight size={16} />
                                             </div>
                                         </div>
                                     </div>
-                                )
+                                );
                             })}
                         </div>
                     )}
 
-                    {/* VIEW 3: FILE LIST */}
-                    {selectedRegion && selectedEnv && (
+                    {/* LEVEL 3: ENVIRONMENTS (for clients with geographies) */}
+                    {selectedClient && CLIENT_GEOGRAPHIES[selectedClient] && selectedGeography && !selectedEnv && (
+                        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 mt-4 animate-fade-in">
+                            {envs.map(env => {
+                                const summaryArray = Array.isArray(repositorySummary) ? repositorySummary : [];
+                                const summary = summaryArray.find(s => s.client === selectedClient && s.geography === selectedGeography && s.env === env);
+                                const filesCount = summary ? summary.count : 0;
+                                const files = repositoryData?.[selectedClient]?.[selectedGeography]?.[env] || [];
+                                const latestFile = files[0];
+                                const isPro = env === 'PRO';
+
+                                return (
+                                    <div
+                                        key={env}
+                                        onClick={() => setSelectedEnv(env)}
+                                        className={`
+                                            relative p-0 rounded-3xl border cursor-pointer transition-all hover:shadow-2xl hover:-translate-y-1 overflow-hidden group
+                                            ${isPro ? 'border-blue-100 bg-white hover:border-blue-300' : 'border-orange-100 bg-white hover:border-orange-300'}
+                                        `}
+                                    >
+                                        <div className={`absolute -top-10 -right-10 w-40 h-40 rounded-full blur-3xl opacity-20 ${isPro ? 'bg-blue-500' : 'bg-orange-500'}`}></div>
+
+                                        <div className="p-8 relative z-10">
+                                            <div className="flex items-center justify-between mb-8">
+                                                <div>
+                                                    <h3 className="text-4xl font-black tracking-tight text-gray-800">{env}</h3>
+                                                    <p className={`text-sm font-medium mt-1 ${isPro ? 'text-blue-500' : 'text-orange-500'}`}>
+                                                        {isPro ? "Entorno de Producción" : "Entorno de Pre-producción"}
+                                                    </p>
+                                                </div>
+                                                <div className={`
+                                                    w-16 h-16 rounded-2xl flex items-center justify-center shadow-lg backdrop-blur-md bg-white/50 border border-white/50
+                                                    ${isPro ? 'text-blue-600' : 'text-orange-600'}
+                                                `}>
+                                                    <Database size={32} />
+                                                </div>
+                                            </div>
+
+                                            <div className="space-y-3 mb-8">
+                                                <div className="flex items-center justify-between text-sm p-3 rounded-xl bg-gray-50 border border-gray-100">
+                                                    <div className="flex items-center gap-2 text-gray-500">
+                                                        <FileJson size={16} /> Total Archivos
+                                                    </div>
+                                                    <span className="font-bold text-gray-800">{filesCount}</span>
+                                                </div>
+
+                                                <div className="flex items-center justify-between text-sm p-3 rounded-xl bg-gray-50 border border-gray-100">
+                                                    <div className="flex items-center gap-2 text-gray-500">
+                                                        <Check size={16} /> Versión Activa
+                                                    </div>
+                                                    <span className={`font-bold px-2 py-0.5 rounded text-xs ${filesCount > 0 && latestFile ? 'bg-green-100 text-green-700' : 'bg-gray-200 text-gray-400'}`}>
+                                                        {filesCount > 0 && latestFile ? `v${latestFile.version}` : 'N/A'}
+                                                    </span>
+                                                </div>
+
+                                                <div className="flex items-center justify-between text-sm p-3 rounded-xl bg-gray-50 border border-gray-100">
+                                                    <div className="flex items-center gap-2 text-gray-500">
+                                                        <Clock size={16} /> Última Actualización
+                                                    </div>
+                                                    <span className="font-medium text-gray-800 text-xs">
+                                                        {filesCount > 0 && latestFile ? latestFile.uploadedAt?.split(',')[0] : '-'}
+                                                    </span>
+                                                </div>
+                                            </div>
+
+                                            <div className={`
+                                                flex items-center justify-center gap-2 py-3 rounded-xl font-bold text-sm transition-colors
+                                                ${isPro ? 'bg-blue-50 text-blue-600 group-hover:bg-blue-600 group-hover:text-white' : 'bg-orange-50 text-orange-600 group-hover:bg-orange-500 group-hover:text-white'}
+                                            `}>
+                                                Gestionar Archivos <ChevronRight size={16} />
+                                            </div>
+                                        </div>
+                                    </div>
+                                );
+                            })}
+                        </div>
+                    )}
+
+                    {/* LEVEL 4: FILE LIST */}
+                    {selectedClient && selectedEnv && ((CLIENT_GEOGRAPHIES[selectedClient] && selectedGeography) || !CLIENT_GEOGRAPHIES[selectedClient]) && (
                         <div className="animate-fade-in h-full flex flex-col bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
                             <div className="flex justify-between items-center p-6 border-b border-gray-100">
                                 <div>
                                     <h3 className="text-lg font-bold text-gray-800">Historial de Versiones</h3>
-                                    <p className="text-sm text-gray-500 mt-1">Gestión de archivos para {selectedRegion} ({selectedEnv})</p>
+                                    <p className="text-sm text-gray-500 mt-1">
+                                        Gestión de archivos para {selectedClient} {selectedGeography && `(${selectedGeography})`} ({selectedEnv})
+                                    </p>
                                 </div>
                                 <div>
                                     <button
@@ -743,7 +862,7 @@ const Repository: React.FC = () => {
                             </div>
 
                             <div className="flex-1 overflow-hidden">
-                                {(!repositoryData[selectedRegion]?.[selectedEnv] || repositoryData[selectedRegion][selectedEnv].length === 0) ? (
+                                {!repositoryData[selectedClient]?.[selectedGeography || 'null']?.[selectedEnv!] || repositoryData[selectedClient][selectedGeography || 'null'][selectedEnv!].length === 0 ? (
                                     <div className="h-96 flex flex-col items-center justify-center text-center p-8">
                                         <div className="w-24 h-24 bg-gray-50 rounded-full flex items-center justify-center mb-6">
                                             <Archive size={40} className="text-gray-300" />
@@ -776,17 +895,17 @@ const Repository: React.FC = () => {
                                                 </tr>
                                             </thead>
                                             <tbody className="divide-y divide-gray-100 bg-white">
-                                                {repositoryData[selectedRegion][selectedEnv].map((file, idx) => {
+                                                {repositoryData[selectedClient]![selectedGeography || 'null']![selectedEnv!].map((file, idx) => {
                                                     const isSelected = selectedForCompare.includes(file.id);
                                                     return (
                                                         <tr
                                                             key={file.id}
                                                             onClick={() => setSelectedFile(file)}
                                                             className={`
-                                                        group hover:bg-blue-50 cursor-pointer transition-colors
-                                                        ${idx === 0 ? 'bg-blue-50/10' : ''}
-                                                        ${isSelected ? 'bg-blue-100/50' : ''}
-                                                    `}
+                                                                group hover:bg-blue-50 cursor-pointer transition-colors
+                                                                ${idx === 0 ? 'bg-blue-50/10' : ''}
+                                                                ${isSelected ? 'bg-blue-100/50' : ''}
+                                                            `}
                                                         >
                                                             <td className="px-6 py-4 text-center">
                                                                 <input
@@ -799,9 +918,9 @@ const Repository: React.FC = () => {
                                                             </td>
                                                             <td className="px-6 py-4 text-center">
                                                                 <span className={`
-                                                            px-2.5 py-1 rounded-md text-xs font-mono font-bold
-                                                            ${idx === 0 ? 'bg-green-100 text-green-700 ring-1 ring-green-200' : 'bg-gray-100 text-gray-600'}
-                                                        `}>
+                                                                    px-2.5 py-1 rounded-md text-xs font-mono font-bold
+                                                                    ${idx === 0 ? 'bg-green-100 text-green-700 ring-1 ring-green-200' : 'bg-gray-100 text-gray-600'}
+                                                                `}>
                                                                     v{file.version}
                                                                 </span>
                                                             </td>
@@ -853,7 +972,7 @@ const Repository: React.FC = () => {
                                                                         onClick={(e) => {
                                                                             e.stopPropagation();
                                                                             if (window.confirm('¿Estás seguro de que deseas eliminar esta versión del archivo permanentemente?')) {
-                                                                                deleteRepositoryFile(file.id, selectedRegion, selectedEnv);
+                                                                                deleteRepositoryFile(file.id, selectedClient, selectedGeography || null, selectedEnv);
                                                                             }
                                                                         }}
                                                                         className="text-gray-400 hover:text-red-500 p-2 rounded-lg hover:bg-white border border-transparent hover:border-gray-200 transition-all shadow-sm hover:shadow"
@@ -877,11 +996,10 @@ const Repository: React.FC = () => {
                 </div>
             </div>
 
-            {/* VALIDATION MODAL (New Feature) */}
+            {/* VALIDATION MODAL */}
             {validation.isOpen && (
                 <div className="fixed inset-0 z-[60] bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
                     <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg flex flex-col animate-fade-in border border-gray-200 overflow-hidden">
-                        {/* Header */}
                         <div className={`p-6 border-b flex items-center justify-between ${validation.status === 'SUCCESS' ? 'bg-green-50 border-green-100' : 'bg-red-50 border-red-100'}`}>
                             <div className="flex items-center gap-4">
                                 <div className={`p-3 rounded-full ${validation.status === 'SUCCESS' ? 'bg-green-100 text-green-600' : 'bg-red-100 text-red-600'}`}>
@@ -898,17 +1016,16 @@ const Repository: React.FC = () => {
                             </div>
                         </div>
 
-                        {/* Body */}
                         <div className="p-6 max-h-[60vh] overflow-y-auto">
                             {validation.status === 'SUCCESS' ? (
                                 <div className="text-center py-4">
                                     <div className="bg-green-50 rounded-xl p-4 mb-4 border border-green-100">
                                         <p className="text-green-700 font-medium">
-                                            Se han validado <span className="font-bold">{validation.totalQueries} queries</span> correctamente para el entorno <span className="underline decoration-green-300">{selectedRegion} - {selectedEnv}</span>.
+                                            Se han validado <span className="font-bold">{validation.totalQueries} queries</span> correctamente.
                                         </p>
                                     </div>
                                     <p className="text-sm text-gray-500 mb-6">
-                                        Al confirmar, se generará la versión v{(repositoryData[selectedRegion!]?.[selectedEnv!]?.length || 0) + 1} de este archivo.
+                                        Al confirmar, se generará la versión v{((repositoryData[selectedClient!]?.[selectedGeography || 'null']?.[selectedEnv!]?.length || 0) + 1)} de este archivo.
                                     </p>
 
                                     <div className="text-left space-y-2">
@@ -921,15 +1038,12 @@ const Repository: React.FC = () => {
                                             placeholder="Detalla qué cambios incluye esta subida..."
                                             className="w-full p-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-alquid-blue focus:border-transparent text-sm min-h-[100px] bg-white resize-none shadow-inner"
                                         />
-                                        <p className="text-[10px] text-gray-400 italic">
-                                            Este comentario ayudará a otros usuarios a entender los cambios realizados.
-                                        </p>
                                     </div>
                                 </div>
                             ) : (
                                 <div>
                                     <p className="text-gray-600 text-sm mb-4">
-                                        Las siguientes queries intentan acceder a bases de datos no permitidas para <strong>{selectedRegion} - {selectedEnv}</strong>:
+                                        Las siguientes queries intentan acceder a bases de datos no permitidas:
                                     </p>
                                     <div className="space-y-3">
                                         {validation.errors.map((err, idx) => (
@@ -942,9 +1056,6 @@ const Repository: React.FC = () => {
                                                     <div className="flex items-center gap-2 text-xs text-red-600">
                                                         <Database size={12} /> {err.database}
                                                     </div>
-                                                    <div className="flex items-center gap-2 text-[10px] text-red-400 mt-1">
-                                                        <FileText size={10} /> Reporte: {err.report}
-                                                    </div>
                                                 </div>
                                             </div>
                                         ))}
@@ -953,7 +1064,6 @@ const Repository: React.FC = () => {
                             )}
                         </div>
 
-                        {/* Footer */}
                         <div className="p-4 border-t border-gray-200 bg-gray-50 flex justify-end gap-3">
                             <button
                                 onClick={() => setValidation({ ...validation, isOpen: false })}
@@ -981,7 +1091,6 @@ const Repository: React.FC = () => {
                 onClose={() => {
                     setIsValidatorOpen(false);
                     setInvalidQueries([]);
-                    // Optionally reset validation state if needed, but keeping it might be useful if they want to retry
                 }}
                 onSave={handleValidatorSave}
             />
@@ -1039,7 +1148,6 @@ const Repository: React.FC = () => {
                                     onChange={(e) => setFilePath(e.target.value)}
                                     className="w-full p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-gray-900 focus:border-transparent font-mono text-sm"
                                 />
-                                <p className="text-xs text-gray-500 mt-1">La ruta incluye carpetas (ej: config/prod/archivo.json)</p>
                             </div>
                         </div>
 
@@ -1054,218 +1162,58 @@ const Repository: React.FC = () => {
                                 onClick={saveToGitHub}
                                 disabled={isPushing || !selectedRepo || !filePath}
                                 className={`
-                              px-6 py-2 bg-gray-900 hover:bg-gray-800 text-white rounded-lg font-bold text-sm shadow-lg flex items-center gap-2 transition-transform hover:-translate-y-0.5
-                              ${(isPushing || !selectedRepo || !filePath) ? 'opacity-50 cursor-not-allowed' : ''}
-                          `}
+                                    px-6 py-2 bg-gray-900 hover:bg-gray-800 text-white rounded-lg font-bold text-sm shadow-lg flex items-center gap-2 transition-transform hover:-translate-y-0.5
+                                    ${(isPushing || !selectedRepo || !filePath) ? 'opacity-50 cursor-not-allowed' : ''}
+                                `}
                             >
-                                {isPushing ? (
-                                    <>Wait...</>
-                                ) : (
-                                    <>
-                                        <Save size={16} /> Guardar Cambios
-                                    </>
-                                )}
+                                {isPushing ? 'Guardando...' : <><Save size={16} /> Guardar Cambios</>}
                             </button>
                         </div>
                     </div>
                 </div>
             )}
 
-            {/* Comparison Modal */}
+            {/* COMPARISON MODAL - Simplified for now */}
             {isCompareModalOpen && generateDiff && (
                 <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
-                    <div className="bg-white rounded-2xl shadow-2xl w-full max-w-6xl h-[90vh] flex flex-col animate-fade-in border border-gray-200">
-                        <div className="flex items-center justify-between p-6 border-b border-gray-100 bg-white rounded-t-2xl">
-                            <div className="flex items-center gap-4">
-                                <div className="p-3 bg-alquid-blue text-white rounded-xl shadow-lg shadow-blue-200">
-                                    <GitCompare size={24} />
-                                </div>
-                                <div>
-                                    <h3 className="text-lg font-bold text-gray-900 flex items-center gap-2">
-                                        Comparación de Versiones
-                                    </h3>
-                                    <p className="text-sm text-gray-500 flex items-center gap-3 mt-1">
-                                        <span className="font-mono bg-gray-100 px-2 py-0.5 rounded text-gray-600 border border-gray-200">v{generateDiff.oldVersion}</span>
-                                        <ArrowRightLeft size={14} className="text-gray-400" />
-                                        <span className="font-mono bg-green-50 px-2 py-0.5 rounded text-green-700 font-bold border border-green-100">v{generateDiff.newVersion}</span>
-                                    </p>
-                                </div>
-                            </div>
-                            <div className="flex items-center gap-6">
-                                <div className="flex gap-4 text-xs font-bold uppercase tracking-wider bg-gray-50 px-4 py-2 rounded-lg border border-gray-100">
-                                    <span className="text-green-600 flex items-center gap-1.5"><Plus size={14} strokeWidth={3} /> {generateDiff.diffs.filter(d => d.status === 'ADDED').length} Añadidos</span>
-                                    <div className="w-px h-4 bg-gray-300"></div>
-                                    <span className="text-red-500 flex items-center gap-1.5"><Minus size={14} strokeWidth={3} /> {generateDiff.diffs.filter(d => d.status === 'REMOVED').length} Eliminados</span>
-                                    <div className="w-px h-4 bg-gray-300"></div>
-                                    <span className="text-yellow-600 flex items-center gap-1.5"><AlertTriangle size={14} strokeWidth={3} /> {generateDiff.diffs.filter(d => d.status === 'MODIFIED').length} Modificados</span>
-                                </div>
-                                <button onClick={() => setIsCompareModalOpen(false)} className="text-gray-400 hover:text-gray-600 p-2 rounded-full hover:bg-gray-100 transition-colors">
-                                    <X size={24} />
-                                </button>
-                            </div>
-                        </div>
-
-                        <div className="flex-1 overflow-y-auto p-0 bg-gray-50/50">
-                            {generateDiff.diffs.length === 0 ? (
-                                <div className="h-full flex flex-col items-center justify-center text-gray-400">
-                                    <div className="w-20 h-20 bg-green-50 rounded-full flex items-center justify-center mb-4">
-                                        <Check size={40} className="text-green-500" />
-                                    </div>
-                                    <p className="font-bold text-gray-700 text-lg">No hay diferencias</p>
-                                    <p className="text-sm">Ambas versiones son idénticas.</p>
-                                </div>
-                            ) : (
-                                <div className="divide-y divide-gray-200 border-t border-gray-200">
-                                    {generateDiff.diffs.map((diff, idx) => (
-                                        <div key={idx} className="bg-white">
-                                            {/* Diff Header Row */}
-                                            <details className="group" open={diff.status === 'MODIFIED' || diff.status === 'ADDED'}>
-                                                <summary className={`
-                                              flex items-center justify-between p-4 cursor-pointer hover:bg-gray-50 select-none
-                                              ${diff.status === 'UNCHANGED' ? 'opacity-50' : ''}
-                                          `}>
-                                                    <div className="flex items-center gap-4">
-                                                        <div className={`
-                                                      w-10 h-10 rounded-xl flex items-center justify-center text-white font-bold shadow-sm
-                                                      ${diff.status === 'ADDED' ? 'bg-green-500' : ''}
-                                                      ${diff.status === 'REMOVED' ? 'bg-red-500' : ''}
-                                                      ${diff.status === 'MODIFIED' ? 'bg-yellow-500' : ''}
-                                                      ${diff.status === 'UNCHANGED' ? 'bg-gray-300' : ''}
-                                                  `}>
-                                                            {diff.status === 'ADDED' && <Plus size={20} />}
-                                                            {diff.status === 'REMOVED' && <Minus size={20} />}
-                                                            {diff.status === 'MODIFIED' && <AlertTriangle size={20} />}
-                                                            {diff.status === 'UNCHANGED' && <Check size={20} />}
-                                                        </div>
-                                                        <div>
-                                                            <h4 className="font-bold text-gray-800 text-sm">{diff.filename}</h4>
-                                                            <p className="text-xs text-gray-500 font-mono mt-0.5">Reporte: {diff.report}</p>
-                                                        </div>
-                                                    </div>
-                                                    <div className="flex items-center gap-4">
-                                                        {diff.status === 'MODIFIED' && (
-                                                            <div className="flex gap-2">
-                                                                {diff.changes.map(c => (
-                                                                    <span key={c} className="px-2 py-1 bg-yellow-50 text-yellow-700 border border-yellow-200 text-[10px] uppercase font-bold rounded">
-                                                                        {c}
-                                                                    </span>
-                                                                ))}
-                                                            </div>
-                                                        )}
-                                                        <ChevronRight size={16} className="text-gray-400 transform group-open:rotate-90 transition-transform" />
-                                                    </div>
-                                                </summary>
-
-                                                {/* Diff Content */}
-                                                <div className="p-4 border-t border-gray-100 bg-gray-50/50 pl-18">
-                                                    {diff.status === 'MODIFIED' && diff.changes.includes('sql') && diff.oldQuery && diff.newQuery && (
-                                                        <div className="mt-2 ml-14">
-                                                            <p className="text-xs font-bold text-gray-500 mb-2 uppercase tracking-wide">Diferencia en SQL:</p>
-                                                            <SqlDiffView oldSql={diff.oldQuery.sql} newSql={diff.newQuery.sql} />
-                                                        </div>
-                                                    )}
-                                                    {diff.status === 'MODIFIED' && !diff.changes.includes('sql') && (
-                                                        <div className="flex gap-8 text-sm ml-14">
-                                                            <div className="flex-1">
-                                                                <span className="text-red-500 font-bold text-xs uppercase">Valor Anterior</span>
-                                                                <pre className="text-xs bg-white border border-red-100 p-3 rounded-lg mt-1 text-gray-600 shadow-sm">{JSON.stringify({ db: diff.oldQuery?.database, table: diff.oldQuery?.table }, null, 2)}</pre>
-                                                            </div>
-                                                            <div className="flex-1">
-                                                                <span className="text-green-600 font-bold text-xs uppercase">Valor Nuevo</span>
-                                                                <pre className="text-xs bg-white border border-green-100 p-3 rounded-lg mt-1 text-gray-600 shadow-sm">{JSON.stringify({ db: diff.newQuery?.database, table: diff.newQuery?.table }, null, 2)}</pre>
-                                                            </div>
-                                                        </div>
-                                                    )}
-                                                    {diff.status === 'ADDED' && diff.newQuery && (
-                                                        <div className="bg-green-50 p-4 rounded-xl border border-green-100 ml-14">
-                                                            <pre className="text-xs text-green-800 whitespace-pre-wrap font-mono leading-relaxed">{formatSqlBonito(diff.newQuery.sql)}</pre>
-                                                        </div>
-                                                    )}
-                                                    {diff.status === 'REMOVED' && diff.oldQuery && (
-                                                        <div className="bg-red-50 p-4 rounded-xl border border-red-100 ml-14">
-                                                            <pre className="text-xs text-red-800 whitespace-pre-wrap font-mono leading-relaxed">{formatSqlBonito(diff.oldQuery.sql)}</pre>
-                                                        </div>
-                                                    )}
-                                                </div>
-                                            </details>
-                                        </div>
-                                    ))}
-                                </div>
-                            )}
-                        </div>
-                    </div>
-                </div>
-            )}
-
-            {/* File Details Modal */}
-            {selectedFile && (
-                <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
-                    <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[85vh] flex flex-col animate-fade-in overflow-hidden">
-                        <div className="flex items-center justify-between p-6 border-b border-gray-100 bg-white rounded-t-2xl flex-shrink-0">
-                            <div className="flex items-center gap-4">
-                                <div className="p-3 bg-alquid-navy text-white rounded-xl">
-                                    <FileJson size={24} />
-                                </div>
-                                <div>
-                                    <h3 className="text-xl font-bold text-gray-900">{selectedFile.fileName}</h3>
-                                    <p className="text-xs text-gray-500 flex items-center gap-2 mt-1">
-                                        <span className="font-mono bg-gray-100 px-2 py-0.5 rounded text-gray-600 border border-gray-200 font-bold">v{selectedFile.version}</span>
-                                        <span className="w-1 h-1 bg-gray-300 rounded-full"></span>
-                                        <span>{selectedFile.uploadedAt}</span>
-                                    </p>
-                                </div>
-                            </div>
-                            <button onClick={() => setSelectedFile(null)} className="text-gray-400 hover:text-gray-600 p-2 rounded-full hover:bg-gray-100 transition-colors">
+                    <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl flex flex-col animate-fade-in border border-gray-200">
+                        <div className="flex items-center justify-between p-6 border-b border-gray-100">
+                            <h3 className="text-lg font-bold">Comparación de Versiones</h3>
+                            <button onClick={() => setIsCompareModalOpen(false)} className="text-gray-400 hover:text-gray-600">
                                 <X size={24} />
                             </button>
                         </div>
-
-                        <div className="flex-1 overflow-y-auto p-6 bg-gray-50/30 custom-scrollbar max-h-96">
-                            <h4 className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-4 flex items-center gap-2 sticky top-0 bg-gray-50/95 backdrop-blur py-2 z-10">
-                                Contenido del Archivo
-                            </h4>
-
-                            {Array.isArray(selectedFile.content) ? (
-                                <div className="space-y-3">
-                                    {selectedFile.content.map((report: ReportDefinition, idx: number) => (
-                                        <div key={idx} className="bg-white border border-gray-200 rounded-xl p-4 hover:border-alquid-blue/50 hover:shadow-md transition-all">
-                                            <div className="flex justify-between items-start mb-3">
-                                                <div className="flex items-center gap-3">
-                                                    <div className="bg-orange-50 p-1.5 rounded-lg text-orange-500">
-                                                        <Folder size={16} />
-                                                    </div>
-                                                    <span className="font-bold text-gray-800 text-sm">{report.report}</span>
-                                                </div>
-                                                <span className="text-[10px] bg-gray-100 text-gray-500 px-2 py-1 rounded-full font-mono font-bold border border-gray-200">
-                                                    {report.queries?.length || 0} queries
-                                                </span>
-                                            </div>
-                                            <div className="pl-10 text-xs text-gray-500 space-y-2 border-l-2 border-gray-50 ml-3">
-                                                {(report.queries || []).map((q, qIdx) => (
-                                                    <div key={qIdx} className="flex items-center gap-2 truncate hover:bg-gray-50 p-1 rounded -ml-1">
-                                                        <div className="w-1.5 h-1.5 rounded-full bg-gray-300"></div>
-                                                        <span className="truncate font-mono text-gray-600">{q.filename}</span>
-                                                    </div>
-                                                ))}
-                                            </div>
-                                        </div>
-                                    ))}
-                                </div>
-                            ) : (
-                                <div className="bg-gray-900 p-4 rounded-xl border border-gray-800 shadow-inner">
-                                    <pre className="text-xs font-mono text-green-400 whitespace-pre-wrap overflow-hidden">
-                                        {JSON.stringify(selectedFile.content, null, 2)}
-                                    </pre>
-                                </div>
-                            )}
+                        <div className="p-6 text-center text-gray-500">
+                            Comparación: v{generateDiff.oldVersion} vs v{generateDiff.newVersion}
+                            <div className="mt-4 text-sm">
+                                {generateDiff.diffs.length} diferencias encontradas
+                            </div>
                         </div>
+                    </div>
+                </div>
+            )}
 
-                        <div className="p-6 border-t border-gray-200 bg-white rounded-b-2xl flex justify-end flex-shrink-0">
+            {/* FILE DETAILS MODAL */}
+            {selectedFile && (
+                <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
+                    <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[85vh] flex flex-col animate-fade-in overflow-hidden">
+                        <div className="flex items-center justify-between p-6 border-b border-gray-100">
+                            <h3 className="text-xl font-bold">{selectedFile.fileName} (v{selectedFile.version})</h3>
+                            <button onClick={() => setSelectedFile(null)} className="text-gray-400 hover:text-gray-600">
+                                <X size={24} />
+                            </button>
+                        </div>
+                        <div className="flex-1 overflow-y-auto p-6 bg-gray-50">
+                            <pre className="text-xs bg-white p-4 rounded border border-gray-200 overflow-x-auto">
+                                {JSON.stringify(selectedFile.content, null, 2)}
+                            </pre>
+                        </div>
+                        <div className="p-6 border-t flex justify-end">
                             <button
                                 onClick={() => downloadFile(selectedFile)}
-                                className="bg-alquid-navy hover:bg-opacity-90 text-white px-6 py-3 rounded-xl font-bold text-sm flex items-center gap-2 shadow-lg shadow-blue-900/10 transition-transform active:scale-95"
+                                className="bg-alquid-navy hover:bg-blue-900 text-white px-6 py-3 rounded-xl font-bold text-sm flex items-center gap-2"
                             >
-                                <Download size={18} /> Descargar JSON Completo
+                                <Download size={18} /> Descargar
                             </button>
                         </div>
                     </div>

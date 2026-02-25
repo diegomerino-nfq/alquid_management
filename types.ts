@@ -24,70 +24,103 @@ export interface AccessConfig {
   };
 }
 
-export type Region = "Colombia" | "Perú" | "Argentina" | "España" | "Suiza" | "New York";
+export type Region = "Colombia" | "Perú" | "Argentina" | "España" | "Suiza" | "Nueva York";
 export type Environment = "PRE" | "PRO";
+export type Client = "Banca March" | "Bankinter" | "BBVA" | "Pichincha";
+export type Geography = "Luxemburgo" | "Argentina" | "Suiza" | "Perú" | "Colombia" | "Nueva York" | "España";
 
 // Repository Types
 export interface RepositoryFile {
   id: string;
+  client: Client;
+  geography?: Geography; // Optional, not all clients have geographies
+  env: Environment;
   version: number;
   fileName: string;
   content: any; // The JSON content
   uploadedAt: string;
-  uploadedBy: string; // Placeholder for user
+  uploadedBy: string;
   comment: string;
 }
 
-export type RepositoryData = Record<string, Record<string, RepositoryFile[]>>;
+export type RepositoryData = Record<string, Record<string, Record<string, RepositoryFile[]>>>; // client -> geography/env -> files
 
-// Configuración estricta de bases de datos/proyectos por entorno basada en la tabla proporcionada
-export const EXPECTED_DATABASES: Record<string, Record<string, string[]>> = {
-  "Argentina": {
-    "PRE": [
-      "pre_bbva_argenti_alquid_archive_xua",
-      "pre_bbva_argenti_alquid_xua"
-    ],
-    "PRO": [
-      "pro_bbva_argenti_alquid_archive_qxw",
-      "pro_bbva_argenti_alquid_qxw"
-    ]
+// Client configuration: which geographies each client has
+export const CLIENT_GEOGRAPHIES: Record<Client, Geography[] | null> = {
+  "Banca March": ["Luxemburgo"],
+  "Bankinter": null, // No geographies
+  "BBVA": ["Argentina", "Suiza", "Perú", "Colombia", "Nueva York", "España"],
+  "Pichincha": null // No geographies
+};
+
+// Configuración estricta de bases de datos/proyectos por cliente, geografía (cuando aplique) y entorno
+export const EXPECTED_DATABASES: Record<Client, Record<string, Record<Environment, string[]>>> = {
+  "Banca March": {
+    "Luxemburgo": {
+      "PRE": ["pre_banca_march_luxemburgo_alquid"],
+      "PRO": ["pro_banca_march_luxemburgo_alquid"]
+    }
   },
-  "Colombia": {
-    "PRE": [
-      "pre_bbva_colombia_alquid",
-      "pre_bbva_colombia_aqluid_archive" // Nota: Mantenido 'aqluid' según especificación
-    ],
-    "PRO": [
-      "pro_bbva_colombia_alquid_3",
-      "pro_bbva_colombia_alquid_archive"
-    ]
+  "Bankinter": {
+    "general": {
+      "PRE": ["pre_bankinter_alquid"],
+      "PRO": ["pro_bankinter_alquid"]
+    }
   },
-  "New York": {
-    "PRE": [
-      "pre_bbva_ny_alquid_archive_olm",
-      "pre_bbva_ny_alquid_olm"
-    ],
-    "PRO": [
-      "pro_bbva_ny_alquid_archive_qjh",
-      "pro_bbva_ny_alquid_qjh"
-    ]
+  "BBVA": {
+    "Argentina": {
+      "PRE": [
+        "pre_bbva_argenti_alquid_archive_xua",
+        "pre_bbva_argenti_alquid_xua"
+      ],
+      "PRO": [
+        "pro_bbva_argenti_alquid_archive_qxw",
+        "pro_bbva_argenti_alquid_qxw"
+      ]
+    },
+    "Colombia": {
+      "PRE": [
+        "pre_bbva_colombia_alquid",
+        "pre_bbva_colombia_aqluid_archive"
+      ],
+      "PRO": [
+        "pro_bbva_colombia_alquid_3",
+        "pro_bbva_colombia_alquid_archive"
+      ]
+    },
+    "Nueva York": {
+      "PRE": [
+        "pre_bbva_ny_alquid_archive_olm",
+        "pre_bbva_ny_alquid_olm"
+      ],
+      "PRO": [
+        "pro_bbva_ny_alquid_archive_qjh",
+        "pro_bbva_ny_alquid_qjh"
+      ]
+    },
+    "Perú": {
+      "PRE": [
+        "pre_bbva_peru_alquid",
+        "pre_bbva_peru_alquid_archive"
+      ],
+      "PRO": [
+        "pro_bbva_peru_alquid",
+        "pro_bbva_peru_alquid_archive"
+      ]
+    },
+    "Suiza": {
+      "PRE": ["sol-pre-suiza-alquid-gc"],
+      "PRO": ["sol-pro-suiza-alquid-gc"]
+    },
+    "España": {
+      "PRE": [],
+      "PRO": []
+    }
   },
-  "Perú": {
-    "PRE": [
-      "pre_bbva_peru_alquid",
-      "pre_bbva_peru_alquid_archive"
-    ],
-    "PRO": [
-      "pro_bbva_peru_alquid",
-      "pro_bbva_peru_alquid_archive"
-    ]
-  },
-  "Suiza": {
-    "PRE": ["sol-pre-suiza-alquid-gc"],
-    "PRO": ["sol-pro-suiza-alquid-gc"]
-  },
-  "España": {
-    "PRE": [],
-    "PRO": []
+  "Pichincha": {
+    "general": {
+      "PRE": ["pre_pichincha_alquid"],
+      "PRO": ["pro_pichincha_alquid"]
+    }
   }
 };

@@ -442,10 +442,11 @@ async function startServer() {
     }
   });
 
-  app.get('/api/repository/:region/:env', (req, res) => {
-    const { region, env } = req.params;
+  app.get('/api/repository/:client/:geography/:env', (req, res) => {
+    const { client, geography, env } = req.params;
+    const geographyValue = geography === 'null' ? null : geography;
     try {
-      const files = queries.getRepoFiles.all(region, env) as any[];
+      const files = queries.getRepoFiles.all(client, geographyValue, env) as any[];
       // Parse JSON content and handle dates
       const parsedFiles = files.map(f => {
         // SQLite CURRENT_TIMESTAMP is UTC 'YYYY-MM-DD HH:MM:SS'
@@ -453,7 +454,6 @@ async function startServer() {
         const utcDate = f.uploaded_at.replace(' ', 'T') + 'Z';
         return {
           ...f,
-          id: f.id,
           fileName: f.filename,
           uploadedAt: utcDate,
           uploadedBy: f.uploaded_by,
@@ -468,22 +468,24 @@ async function startServer() {
   });
 
   app.post('/api/repository', async (req, res) => {
-    const { region, env, filename, content, uploadedBy, comment } = req.body;
-    console.log(`[REPO] Intento de subida: ${filename} en ${region}/${env} por ${uploadedBy}`);
+    const { client, geography, env, filename, content, uploadedBy, comment } = req.body;
+    const geographyValue = geography === 'null' || !geography ? null : geography;
+    console.log(`[REPO] Intento de subida: ${filename} en ${client}/${geography || 'sin-geografía'}/${env} por ${uploadedBy}`);
     console.log(`[REPO] Tamaño del contenido: ${JSON.stringify(content).length} caracteres`);
     console.log(`[REPO] Comentario: ${comment || 'N/A'}`);
 
     try {
       // 1. Get latest version
-      const row = queries.getLatestVersion.get(region, env, filename) as any;
+      const row = queries.getLatestVersion.get(client, geographyValue, env, filename) as any;
       const nextVersion = (row?.maxV || 0) + 1;
-      const id = `${region}_${env}_${filename}_v${nextVersion}`;
+      const id = `${client}_${geography || 'general'}_${env}_${filename}_v${nextVersion}`;
 
       // 2. Persistent storage (DB for metadata/content for now)
       try {
         queries.addRepoFile.run(
           id,
-          region,
+          client,
+          geographyValue,
           env,
           filename,
           nextVersion,
@@ -506,7 +508,7 @@ async function startServer() {
           });
           await s3.send(new PutObjectCommand({
             Bucket: process.env.AWS_S3_BUCKET,
-            Key: `${region}/${env}/${filename}_v${nextVersion}.json`,
+            Key: `${client}/${geography || 'general'}/${env}/${filename}_v${nextVersion}.json`,
             Body: JSON.stringify(content, null, 2),
             ContentType: 'application/json',
           }));
@@ -520,11 +522,11 @@ async function startServer() {
         const { Storage } = await import('@google-cloud/storage');
         const storage = new Storage();
         const bucket = storage.bucket(process.env.GCS_BUCKET);
-        await bucket.file(`${region}/${env}/${filename}_v${nextVersion}.json`).save(JSON.stringify(content, null, 2));
+        await bucket.file(`${client}/${geography || 'general'}/${env}/${filename}_v${nextVersion}.json`).save(JSON.stringify(content, null, 2));
       }
 
       res.status(201).json({ id, version: nextVersion });
-      queries.addLog.run('REPOSITORIO', 'SUBIDA_EXITOSA', `Archivo v${nextVersion} guardado: ${filename} en ${region} ${env}`, 'SUCCESS');
+      queries.addLog.run('REPOSITORIO', 'SUBIDA_EXITOSA', `Archivo v${nextVersion} guardado: ${filename} en ${client} ${geography || 'general'} ${env}`, 'SUCCESS');
     } catch (error: any) {
       console.error('Repository upload error:', error.message);
       res.status(500).json({ error: error.message });
