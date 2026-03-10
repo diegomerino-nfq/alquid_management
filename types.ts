@@ -124,3 +124,101 @@ export const EXPECTED_DATABASES: Record<Client, Record<string, Record<Environmen
     }
   }
 };
+
+// Tablas conocidas por base de datos
+// Agrupa tablas que pueden existir en las bases ALQUID según el tipo de cliente
+export const EXPECTED_TABLES: Record<string, string[]> = {
+  // Tablas base ALQUID (comunes a todas las instancias)
+  "DEFAULT": [
+    "metric",
+    "cashflow",
+    "result",
+    "accounts",
+    "transactions",
+    "balance",
+    "movements",
+    "data_extract",
+    "staging",
+    "archive"
+  ],
+  // Banca March
+  "pre_banca_march_luxemburgo_alquid": [
+    "metric", "cashflow", "result", "accounts", "balance", "transactions"
+  ],
+  "pro_banca_march_luxemburgo_alquid": [
+    "metric", "cashflow", "result", "accounts", "balance", "transactions"
+  ],
+  // Bankinter
+  "pre_bankinter_alquid": [
+    "metric", "cashflow", "result", "accounts", "balance", "transactions"
+  ],
+  "pro_bankinter_alquid": [
+    "metric", "cashflow", "result", "accounts", "balance", "transactions"
+  ],
+  // BBVA Argentina
+  "pre_bbva_argenti_alquid_xua": [
+    "metric", "cashflow", "result", "accounts", "transactions", "balance"
+  ],
+  "pre_bbva_argenti_alquid_archive_xua": [
+    "metric", "cashflow", "result", "accounts", "transactions", "balance"
+  ],
+  "pro_bbva_argenti_alquid_qxw": [
+    "metric", "cashflow", "result", "accounts", "transactions", "balance"
+  ],
+  "pro_bbva_argenti_alquid_archive_qxw": [
+    "metric", "cashflow", "result", "accounts", "transactions", "balance"
+  ],
+  // BBVA Colombia
+  "pre_bbva_colombia_alquid": [
+    "metric", "cashflow", "result", "accounts", "transactions", "balance"
+  ],
+  "pre_bbva_colombia_aqluid_archive": [
+    "metric", "cashflow", "result", "accounts", "transactions", "balance"
+  ],
+  "pro_bbva_colombia_alquid_3": [
+    "metric", "cashflow", "result", "accounts", "transactions", "balance"
+  ],
+  "pro_bbva_colombia_alquid_archive": [
+    "metric", "cashflow", "result", "accounts", "transactions", "balance"
+  ],
+  // BBVA Nueva York
+  "pre_bbva_ny_alquid_olm": [
+    "metric", "cashflow", "result", "accounts", "transactions", "balance"
+  ],
+  "pre_bbva_ny_alquid_archive_olm": [
+    "metric", "cashflow", "result", "accounts", "transactions", "balance"
+  ],
+  "pro_bbva_ny_alquid_qjh": [
+    "metric", "cashflow", "result", "accounts", "transactions", "balance"
+  ],
+  "pro_bbva_ny_alquid_archive_qjh": [
+    "metric", "cashflow", "result", "accounts", "transactions", "balance"
+  ],
+  // BBVA Perú
+  "pre_bbva_peru_alquid": [
+    "metric", "cashflow", "result", "accounts", "transactions", "balance"
+  ],
+  "pre_bbva_peru_alquid_archive": [
+    "metric", "cashflow", "result", "accounts", "transactions", "balance"
+  ],
+  "pro_bbva_peru_alquid": [
+    "metric", "cashflow", "result", "accounts", "transactions", "balance"
+  ],
+  "pro_bbva_peru_alquid_archive": [
+    "metric", "cashflow", "result", "accounts", "transactions", "balance"
+  ],
+  // BBVA Suiza
+  "sol-pre-suiza-alquid-gc": [
+    "metric", "cashflow", "result", "accounts", "transactions", "balance"
+  ],
+  "sol-pro-suiza-alquid-gc": [
+    "metric", "cashflow", "result", "accounts", "transactions", "balance"
+  ],
+  // Pichincha
+  "pre_pichincha_alquid": [
+    "metric", "cashflow", "result", "accounts", "transactions", "balance"
+  ],
+  "pro_pichincha_alquid": [
+    "metric", "cashflow", "result", "accounts", "transactions", "balance"
+  ]
+};

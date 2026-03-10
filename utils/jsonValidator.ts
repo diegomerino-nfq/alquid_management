@@ -1,4 +1,4 @@
-import { ReportDefinition, QueryDefinition, EXPECTED_DATABASES } from '../types';
+import { ReportDefinition, QueryDefinition, EXPECTED_DATABASES, EXPECTED_TABLES } from '../types';
 
 export type ValidationSeverity = 'CRITICAL' | 'ERROR' | 'WARNING' | 'INFO';
 
@@ -127,10 +127,10 @@ export function validateReportJson(
 
             // Rule 11: SQL has absolute references (should use %s.%s)
             if (query.sql && typeof query.sql === 'string') {
-                const absoluteRefs = findAbsoluteReferences(query.sql);
+                const absoluteRefs = findAbsoluteReferences(query.sql, query.database);
                 if (absoluteRefs.length > 0) {
                     add('WARNING', ri, qi, rName, fName, 'REF_ABSOLUTA',
-                        `SQL contiene ${absoluteRefs.length} referencia(s) absoluta(s): ${absoluteRefs.slice(0, 3).join(', ')}. Usa %s.%s.`);
+                        `SQL contiene ${absoluteRefs.length} referencia(s) absoluta(s) que necesitan %s.%s: ${absoluteRefs.slice(0, 3).join(', ')}.`);
                 }
             }
 
@@ -190,29 +190,83 @@ export function validateReportJson(
 }
 
 /**
- * Detects absolute references in SQL by finding dotted identifiers
- * (e.g. "alquid.result") OUTSIDE of string literals.
- * Ignores %s.%s placeholders.
+ * Detects absolute references in SQL that should be dynamic (%s.%s).
+ * 
+ * A reference is considered "absolute" if:
+ * 1. It appears in a FROM/JOIN clause (like FROM database.table)
+ * 2. The first part (database name) is NOT a known table alias
+ * 3. The first part is NOT a known table name in that database
+ * 4. The first part is NOT the same database being validated
+ * 
+ * This allows normal column references like "cashflow.payment_date" to pass through
+ * while flagging problematic database.table references like "alquid.cashflow".
+ * 
+ * @param sql - The SQL query to analyze
+ * @param database - The database name (used to look up known tables and exclude same-DB refs)
+ * @returns Array of absolute references found (e.g., ["alquid.cashflow"])
  */
-export function findAbsoluteReferences(sql: string): string[] {
+export function findAbsoluteReferences(sql: string, database?: string): string[] {
     const refs: string[] = [];
-    // Remove string literals (single-quoted) to avoid false positives on product names
+
+    // Remove string literals to avoid false positives
     const cleaned = sql.replace(/'[^']*'/g, "''");
-    // Remove backtick-quoted identifiers that are column aliases
     const cleaned2 = cleaned.replace(/`[^`]*`/g, '``');
 
-    // Find dotted identifiers: word.word (not %s.%s, not numbers like 1.5)
+    // Get list of known tables for this database
+    const knownTables = new Set<string>();
+    if (database && EXPECTED_TABLES[database]) {
+        EXPECTED_TABLES[database].forEach(table => {
+            knownTables.add(table.toUpperCase());
+        });
+    }
+    // Always include the DEFAULT tables
+    if (EXPECTED_TABLES["DEFAULT"]) {
+        EXPECTED_TABLES["DEFAULT"].forEach(table => {
+            knownTables.add(table.toUpperCase());
+        });
+    }
+
+    // Extract table aliases from FROM/JOIN clauses
+    // Pattern: FROM|JOIN ... [database.]table_name [AS] alias
+    const tableAliasRegex = /\b(FROM|JOIN|INNER\s+JOIN|LEFT\s+JOIN|RIGHT\s+JOIN|FULL\s+JOIN|CROSS\s+JOIN)\s+(?:[a-zA-Z_][a-zA-Z0-9_-]*\.)?[a-zA-Z_][a-zA-Z0-9_-]*\s+(?:AS\s+)?([a-zA-Z_][a-zA-Z0-9_]*)\b/gi;
+    const tableAliases = new Set<string>();
+    let aliasMatch;
+    while ((aliasMatch = tableAliasRegex.exec(cleaned2)) !== null) {
+        const alias = aliasMatch[2];
+        // Exclude SQL keywords that might be incorrectly captured
+        if (alias && !/^(ON|WHERE|GROUP|ORDER|LIMIT|JOIN|INNER|LEFT|RIGHT|FULL|CROSS|AND|OR|AS)$/i.test(alias)) {
+            tableAliases.add(alias.toUpperCase());
+        }
+    }
+
+    // Find all dotted identifiers in FROM/JOIN contexts
     const dotIdRegex = /\b([a-zA-Z_][a-zA-Z0-9_-]*\.[a-zA-Z_][a-zA-Z0-9_]*)\b/g;
     let match;
     while ((match = dotIdRegex.exec(cleaned2)) !== null) {
         const ref = match[1];
-        // Skip the placeholder pattern
-        if (ref === '%s.%s') continue;
-        // Skip common SQL built-in patterns
-        if (/^\d/.test(ref)) continue;
-        refs.push(ref);
+        
+        // Ignore %s.%s placeholders
+        if (ref === '%s.%s') {
+            continue;
+        }
+
+        // Check if this reference appears in FROM/JOIN contexts
+        const fromJoinPattern = new RegExp(`\\b(FROM|JOIN|INNER\\s+JOIN|LEFT\\s+JOIN|RIGHT\\s+JOIN|FULL\\s+JOIN|CROSS\\s+JOIN)\\s+.*\\b${ref.replace(/\./g, '\\.')}\\b`, 'i');
+        if (fromJoinPattern.test(cleaned2)) {
+            const firstPart = ref.split('.')[0].toUpperCase();
+            
+            // Only flag if ALL of these are true:
+            // 1. First part is NOT a known table alias
+            // 2. First part is NOT a known table name
+            // 3. First part is NOT the same database being validated
+            if (!tableAliases.has(firstPart) && 
+                !knownTables.has(firstPart) && 
+                firstPart !== database?.toUpperCase()) {
+                refs.push(ref);
+            }
+        }
     }
 
-    // Deduplicate
+    // Deduplicate and return
     return [...new Set(refs)];
 }

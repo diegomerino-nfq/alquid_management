@@ -4,6 +4,7 @@ import PageHeader from '../components/PageHeader';
 import { useGlobalState } from '../context/GlobalStateContext';
 import { RepositoryFile, ReportDefinition, QueryDefinition, EXPECTED_DATABASES, Client, Geography, CLIENT_GEOGRAPHIES } from '../types';
 import { formatSqlBonito } from '../utils/sqlFormatter';
+import { findAbsoluteReferences } from '../utils/jsonValidator';
 import QueryValidatorModal, { InvalidQuery } from '../components/QueryValidatorModal';
 import { Octokit } from 'octokit';
 
@@ -273,7 +274,7 @@ const Repository: React.FC = () => {
                 jsonContent.forEach((repo, rIdx) => {
                     if (repo.queries && Array.isArray(repo.queries)) {
                         repo.queries.forEach((q, qIdx) => {
-                            if (q.sql && !q.sql.includes('%s.%s')) {
+                            if (q.sql && findAbsoluteReferences(q.sql, q.database).length > 0) {
                                 invalidDynamicQueries.push({
                                     reportIndex: rIdx,
                                     queryIndex: qIdx,
@@ -285,16 +286,12 @@ const Repository: React.FC = () => {
                     }
                 });
 
+                // Si hay referencias absolutas, mostrar aviso pero permitir la subida
                 if (invalidDynamicQueries.length > 0) {
                     setInvalidQueries(invalidDynamicQueries);
-                    setValidation({
-                        ...validation,
-                        fileName: file.name,
-                        contentToUpload: jsonContent
-                    });
-                    setIsValidatorOpen(true);
-                    addLog('REPOSITORIO', 'VALIDACION_DINAMICA', `Se detectaron ${invalidDynamicQueries.length} queries con referencias absolutas.`, 'WARNING');
-                    return;
+                    // Mostrar aviso visible al usuario
+                    alert(`⚠️ Se detectaron ${invalidDynamicQueries.length} referencias absolutas en el archivo.\n\nLas referencias detectadas son:\n${invalidDynamicQueries.map(q => `- ${q.reportName}: ${q.query.filename}`).join('\n')}\n\nEl archivo se subirá igual, pero considera revisar estas referencias para usar %s.%s en lugar de nombres absolutos.`);
+                    addLog('REPOSITORIO', 'VALIDACION_DINAMICA', `Se detectaron ${invalidDynamicQueries.length} queries con referencias absolutas que necesitan revisión.`, 'WARNING');
                 }
 
                 validateAndSetState(jsonContent, file.name);
@@ -693,7 +690,8 @@ const Repository: React.FC = () => {
                                 const summary = summaryArray.find(s => s.client === selectedClient && !s.geography && s.env === env);
                                 const filesCount = summary ? summary.count : 0;
                                 const files = repositoryData?.[selectedClient]?.['null']?.[env] || [];
-                                const latestFile = files[0];
+                                const sortedFiles = [...files].sort((a, b) => b.version - a.version);
+                                const latestFile = sortedFiles[0];
                                 const isPro = env === 'PRO';
 
                                 return (
@@ -771,7 +769,8 @@ const Repository: React.FC = () => {
                                 const summary = summaryArray.find(s => s.client === selectedClient && s.geography === selectedGeography && s.env === env);
                                 const filesCount = summary ? summary.count : 0;
                                 const files = repositoryData?.[selectedClient]?.[selectedGeography]?.[env] || [];
-                                const latestFile = files[0];
+                                const sortedFiles = [...files].sort((a, b) => b.version - a.version);
+                                const latestFile = sortedFiles[0];
                                 const isPro = env === 'PRO';
 
                                 return (
@@ -895,7 +894,7 @@ const Repository: React.FC = () => {
                                                 </tr>
                                             </thead>
                                             <tbody className="divide-y divide-gray-100 bg-white">
-                                                {repositoryData[selectedClient]![selectedGeography || 'null']![selectedEnv!].map((file, idx) => {
+                                                {[...repositoryData[selectedClient]![selectedGeography || 'null']![selectedEnv!]].sort((a, b) => b.version - a.version).map((file, idx) => {
                                                     const isSelected = selectedForCompare.includes(file.id);
                                                     return (
                                                         <tr
@@ -969,10 +968,15 @@ const Repository: React.FC = () => {
                                                                 </button>
                                                                 {user?.role === 'admin' && (
                                                                     <button
-                                                                        onClick={(e) => {
+                                                                        onClick={async (e) => {
                                                                             e.stopPropagation();
                                                                             if (window.confirm('¿Estás seguro de que deseas eliminar esta versión del archivo permanentemente?')) {
-                                                                                deleteRepositoryFile(file.id, selectedClient, selectedGeography || null, selectedEnv);
+                                                                                try {
+                                                                                    await deleteRepositoryFile(file.id, selectedClient, selectedGeography || null, selectedEnv);
+                                                                                    // La UI se actualizará automáticamente cuando se refresquen los datos
+                                                                                } catch (error) {
+                                                                                    alert('Error al eliminar el archivo: ' + error.message);
+                                                                                }
                                                                             }
                                                                         }}
                                                                         className="text-gray-400 hover:text-red-500 p-2 rounded-lg hover:bg-white border border-transparent hover:border-gray-200 transition-all shadow-sm hover:shadow"
