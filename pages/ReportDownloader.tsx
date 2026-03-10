@@ -246,18 +246,26 @@ const ReportDownloader: React.FC = () => {
     }
 
     // 2. Database Validation (Strict check against EXPECTED_DATABASES)
-    const allowedDbs = EXPECTED_DATABASES[downloadRegion]?.[downloadEnv];
-
-    if (allowedDbs) {
-      if (!allowedDbs.includes(query.database)) {
-        if (allowedDbs.length === 0) {
-          errors.push(`No hay bases de datos permitidas configuradas para ${downloadRegion} ${downloadEnv}.`);
-        } else {
-          errors.push(`BD '${query.database}' no válida para ${downloadRegion} ${downloadEnv}.`);
+    // EXPECTED_DATABASES is structured as client -> geography -> env
+    // Aggregate allowed DBs for the selected geography across clients
+    let allowedDbs: string[] = [];
+    if (downloadRegion && downloadEnv) {
+      for (const clientKey of Object.keys(EXPECTED_DATABASES)) {
+        const geoMap = (EXPECTED_DATABASES as any)[clientKey];
+        const geoEntry = geoMap?.[downloadRegion];
+        if (geoEntry && geoEntry[downloadEnv]) {
+          allowedDbs = allowedDbs.concat(geoEntry[downloadEnv]);
         }
       }
+      allowedDbs = Array.from(new Set(allowedDbs));
+    }
+
+    if (allowedDbs.length > 0) {
+      if (!allowedDbs.includes(query.database)) {
+        errors.push(`BD '${query.database}' no válida para ${downloadRegion} ${downloadEnv}.`);
+      }
     } else {
-      errors.push(`Configuración no encontrada para ${downloadRegion} ${downloadEnv}.`);
+      errors.push(`No hay bases de datos permitidas configuradas para ${downloadRegion} ${downloadEnv}.`);
     }
 
     if (errors.length > 0) {

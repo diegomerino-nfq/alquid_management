@@ -111,8 +111,18 @@ export function validateReportJson(
 
             // Rule 9: database matches EXPECTED_DATABASES
             if (region && env && query.database) {
-                const allowedDbs = EXPECTED_DATABASES[region]?.[env];
-                if (allowedDbs && allowedDbs.length > 0) {
+                // EXPECTED_DATABASES is keyed by client -> geography -> env
+                // Aggregate allowed DBs for the selected geography across all clients
+                let allowedDbs: string[] = [];
+                for (const clientKey of Object.keys(EXPECTED_DATABASES)) {
+                    const geoMap = (EXPECTED_DATABASES as any)[clientKey];
+                    const geoEntry = geoMap?.[region];
+                    if (geoEntry && geoEntry[env]) {
+                        allowedDbs = allowedDbs.concat(geoEntry[env]);
+                    }
+                }
+                allowedDbs = Array.from(new Set(allowedDbs));
+                if (allowedDbs.length > 0) {
                     if (!allowedDbs.includes(query.database)) {
                         add('ERROR', ri, qi, rName, fName, 'DATABASE_NO_PERMITIDA',
                             `BD "${query.database}" no está permitida para ${region}/${env}. Permitidas: ${allowedDbs.join(', ')}`);
