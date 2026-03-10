@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useRef, useEffect } from 'react';
-import { Play, Settings, Database, CheckSquare, Square, Filter, CheckCircle2, XCircle, Search, X, AlertTriangle, FileWarning, FolderOpen, Download, ShieldAlert } from 'lucide-react';
+import { Play, Settings, Database, CheckSquare, Square, Filter, CheckCircle2, XCircle, Search, X, AlertTriangle, FileWarning, Download, ShieldAlert } from 'lucide-react';
 import axios from 'axios';
 import FileInput from '../components/FileInput';
 import PageHeader from '../components/PageHeader';
@@ -117,15 +117,7 @@ const ReportDownloader: React.FC = () => {
     // Update state
     setDownloadReports(json, fileName);
 
-    // Auto-sync to repository
-    if (downloadRegion && downloadEnv) {
-      try {
-        await addRepositoryFile(downloadRegion, downloadEnv, json, fileName);
-        addLog('DESCARGA', 'AUTO_REPO', `Sincronización automática OK: ${fileName}`, 'SUCCESS');
-      } catch (err) {
-        console.error('Auto-sync failed:', err);
-      }
-    }
+    // Auto-sync to repository removed: downloader does not know client/geography mapping
 
     if (invalidDynamicQueries.length > 0) {
       setInvalidQueries(invalidDynamicQueries);
@@ -151,15 +143,7 @@ const ReportDownloader: React.FC = () => {
     try {
       const json = JSON.parse(content);
       setDownloadConfig(json, fileName);
-
-      if (downloadRegion && downloadEnv) {
-        try {
-          await addRepositoryFile(downloadRegion, downloadEnv, json, fileName);
-          addLog('DESCARGA', 'AUTO_REPO', `Sincronización config OK: ${fileName}`, 'SUCCESS');
-        } catch (err) {
-          console.error('Auto-sync failed:', err);
-        }
-      }
+      // Auto-sync removed: config upload requires explicit client/geography selection in Repository UI
       addLog('DESCARGA', 'CARGA_ARCHIVO', `Config cargada: ${fileName}`, 'SUCCESS');
     } catch (e) {
       alert("JSON de configuración inválido");
@@ -359,21 +343,19 @@ const ReportDownloader: React.FC = () => {
     const total = itemsToRun.length;
     let errorCount = 0;
 
-    // Prompt user for destination folder and create base structure
+    // Prompt user for destination folder and create base folder named Informes_<region>_<env>_<yymmdd>
     let baseDir: any = null;
     try {
       // @ts-ignore
       const root = await (window as any).showDirectoryPicker();
-      const informes = await root.getDirectoryHandle('Informes', { create: true });
-      const regionDir = await informes.getDirectoryHandle(downloadRegion || 'General', { create: true });
-      const envDir = await regionDir.getDirectoryHandle(downloadEnv || 'General', { create: true });
       const d = new Date();
       const yy = String(d.getFullYear()).slice(-2);
       const mm = String(d.getMonth() + 1).padStart(2, '0');
       const dd = String(d.getDate()).padStart(2, '0');
-      const yearDir = await envDir.getDirectoryHandle(yy, { create: true });
-      const monthDir = await yearDir.getDirectoryHandle(mm, { create: true });
-      baseDir = await monthDir.getDirectoryHandle(dd, { create: true });
+      const regionKey = (downloadRegion || 'general').toString().toLowerCase().replace(/\s+/g, '_');
+      const envKey = (downloadEnv || 'general').toString().toLowerCase().replace(/\s+/g, '_');
+      const folderName = `Informes_${regionKey}_${envKey}_${yy}${mm}${dd}`;
+      baseDir = await root.getDirectoryHandle(folderName, { create: true });
     } catch (err: any) {
       // If user cancels folder pick, baseDir stays null and fallback to standard downloads
       if (err && err.name !== 'AbortError') console.error('Error picking directory:', err);
@@ -433,20 +415,20 @@ const ReportDownloader: React.FC = () => {
         // Add UTF-8 BOM for Excel column detection
         const blob = new Blob(["\uFEFF", csvContent], { type: 'text/csv;charset=utf-8;' });
 
-        if (directoryHandle) {
+        if (baseDir) {
           // Save using File System Access API. Preserve subfolders in filename like "1.Internos/SMM"
           try {
             const parts = item.query.filename.split('/');
             if (parts.length > 1) {
               const dirName = parts[0];
               const fileNameOnly = parts.slice(1).join('/');
-              const subDir = await directoryHandle.getDirectoryHandle(dirName, { create: true });
+              const subDir = await baseDir.getDirectoryHandle(dirName, { create: true });
               const fileHandle = await subDir.getFileHandle(`${fileNameOnly}.csv`, { create: true });
               const writable = await fileHandle.createWritable();
               await writable.write(blob);
               await writable.close();
             } else {
-              const fileHandle = await directoryHandle.getFileHandle(`${item.query.filename}.csv`, { create: true });
+              const fileHandle = await baseDir.getFileHandle(`${item.query.filename}.csv`, { create: true });
               const writable = await fileHandle.createWritable();
               await writable.write(blob);
               await writable.close();
@@ -1013,41 +995,8 @@ const ReportDownloader: React.FC = () => {
 
           {/* Action Footer */}
           <div className="p-4 border-t border-gray-200 bg-white z-10 flex-shrink-0 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)]">
-            <div className="flex gap-2 mb-3">
-              <button
-                onClick={handleSelectFolder}
-                className={`flex-1 py-3 px-4 rounded-xl border-2 transition-all flex items-center justify-center gap-2 font-semibold text-sm
-                  if (baseDir) {
-                    try {
-                      const parts = item.query.filename.split('/');
-                      if (parts.length > 1) {
-                        const dirName = parts[0];
-                        const fileNameOnly = parts.slice(1).join('/');
-                        const subDir = await baseDir.getDirectoryHandle(dirName, { create: true });
-                        const fileHandle = await subDir.getFileHandle(`${fileNameOnly}.csv`, { create: true });
-                        const writable = await fileHandle.createWritable();
-                        await writable.write(blob);
-                        await writable.close();
-                      } else {
-                        const fileHandle = await baseDir.getFileHandle(`${item.query.filename}.csv`, { create: true });
-                        const writable = await fileHandle.createWritable();
-                        await writable.write(blob);
-                        await writable.close();
-                      }
-                    } catch (fsErr: any) {
-                      console.error('FS Write Error:', fsErr);
-                      addLog('DESCARGA', 'ERROR_ESCRIBIENDO', `Error escribiendo a carpeta: ${fsErr.message}`, 'WARNING');
-                      // Fallback to regular download if FS fails
-                      const url = window.URL.createObjectURL(blob);
-                      const a = document.createElement('a');
-                      a.href = url;
-                      a.download = `${item.query.filename.replace(/\//g, '_')}.csv`;
-                      document.body.appendChild(a);
-                      a.click();
-                      document.body.removeChild(a);
-                      window.URL.revokeObjectURL(url);
-                    }
-                  } else {
+            {isProcessing && (
+              <div className="mb-3">
                 <div className="flex justify-between text-xs font-semibold text-gray-600 mb-1">
                   <span>Procesando descarga...</span>
                   <span>{progress}%</span>

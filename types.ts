@@ -75,7 +75,8 @@ export const EXPECTED_DATABASES: Record<Client, Record<string, Record<Environmen
       ],
       "PRO": [
         "pro_bbva_argenti_alquid_archive_qxw",
-        "pro_bbva_argenti_alquid_qxw"
+        "pro_bbva_argenti_alquid_qxw",
+        "pro_bbva_argenti_alquid_xua"
       ]
     },
     "Colombia": {

@@ -14,6 +14,11 @@ const SqlExtractor: React.FC = () => {
     addLog // Adding logger
   } = useGlobalState();
 
+  const regions = ["Argentina", "Colombia", "España", "New York", "Perú", "Suiza"].sort();
+  const environments = ["PRE", "PRO"].sort();
+  const [extractRegion, setExtractRegion] = useState<string>("");
+  const [extractEnv, setExtractEnv] = useState<string>("");
+
   const [selectedQueries, setSelectedQueries] = useState<Set<string>>(new Set());
   
   // Validation Error Modal State
@@ -67,19 +72,7 @@ const SqlExtractor: React.FC = () => {
       return errors;
   };
 
-  const handleSelectFolder = async () => {
-    try {
-      // @ts-ignore
-      const handle = await (window as any).showDirectoryPicker();
-      setDirectoryHandle(handle);
-      addLog('EXTRACCIÓN', 'CARPETA_SELECCIONADA', `Carpeta seleccionada: ${handle.name}`, 'SUCCESS');
-    } catch (err: any) {
-      if (err.name !== 'AbortError') {
-        console.error('Error selecting directory:', err);
-        addLog('EXTRACCIÓN', 'ERROR_CARPETA', `Error al seleccionar carpeta: ${err.message}`, 'ERROR');
-      }
-    }
-  };
+  // Directory picker is opened at export time; no persistent folder button
 
   const handleQueriesLoaded = (content: string, fileName: string) => {
     try {
@@ -130,21 +123,19 @@ const SqlExtractor: React.FC = () => {
     if (selectedQueries.size === 0) return alert("Selecciona al menos una query");
     
     let processedCount = 0;
-    // Prompt for destination and create base folder Informes/General/General/yy/mm/dd
+    // Prompt for destination and create base folder Informes_<region>_<env>_<yymmdd>
     let baseDir: any = null;
     try {
       // @ts-ignore
       const root = await (window as any).showDirectoryPicker();
-      const informes = await root.getDirectoryHandle('Informes', { create: true });
-      const regionDir = await informes.getDirectoryHandle('General', { create: true });
-      const envDir = await regionDir.getDirectoryHandle('General', { create: true });
       const d = new Date();
       const yy = String(d.getFullYear()).slice(-2);
       const mm = String(d.getMonth() + 1).padStart(2, '0');
       const dd = String(d.getDate()).padStart(2, '0');
-      const yearDir = await envDir.getDirectoryHandle(yy, { create: true });
-      const monthDir = await yearDir.getDirectoryHandle(mm, { create: true });
-      baseDir = await monthDir.getDirectoryHandle(dd, { create: true });
+      const regionKey = (extractRegion || 'general').toString().toLowerCase().replace(/\s+/g, '_');
+      const envKey = (extractEnv || 'general').toString().toLowerCase().replace(/\s+/g, '_');
+      const folderName = `Informes_${regionKey}_${envKey}_${yy}${mm}${dd}`;
+      baseDir = await root.getDirectoryHandle(folderName, { create: true });
     } catch (err: any) {
       if (err && err.name !== 'AbortError') console.error('Error picking directory:', err);
       baseDir = null;
@@ -456,24 +447,33 @@ const SqlExtractor: React.FC = () => {
                 </div>
 
                 <div>
+                  <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">Región</label>
+                  <select
+                    value={extractRegion}
+                    onChange={(e) => setExtractRegion(e.target.value)}
+                    className={`w-full appearance-none bg-white border border-gray-300 rounded-lg py-3 px-4 leading-tight focus:outline-none focus:ring-2 focus:ring-alquid-navy focus:border-transparent font-medium shadow-sm transition-all cursor-pointer hover:border-gray-400 ${extractRegion === "" ? "text-gray-500" : "text-gray-900"}`}
+                  >
+                    <option value="">Seleccionar región</option>
+                    {regions.map(r => <option key={r} value={r}>{r}</option>)}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">Entorno</label>
+                  <select
+                    value={extractEnv}
+                    onChange={(e) => setExtractEnv(e.target.value)}
+                    className={`w-full appearance-none bg-white border border-gray-300 rounded-lg py-3 px-4 leading-tight focus:outline-none focus:ring-2 focus:ring-alquid-navy focus:border-transparent font-medium shadow-sm transition-all cursor-pointer hover:border-gray-400 ${extractEnv === "" ? "text-gray-500" : "text-gray-900"}`}
+                  >
+                    <option value="">Seleccionar entorno</option>
+                    {environments.map(en => <option key={en} value={en}>{en}</option>)}
+                  </select>
+                </div>
+
+                <div>
                   <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">Carpeta destino</label>
                   <div className="flex items-center gap-2">
-                    <button
-                      onClick={handleSelectFolder}
-                      className={`flex-1 py-3 px-4 rounded-xl border-2 transition-all flex items-center justify-center gap-2 font-semibold text-sm ${directoryHandle ? 'bg-green-50 border-green-200 text-green-700' : 'bg-gray-50 border-gray-200 text-gray-600'}`}
-                    >
-                      <FolderOpen size={16} />
-                      {directoryHandle ? `Carpeta: ${directoryHandle.name}` : 'Seleccionar Carpeta'}
-                    </button>
-                    {directoryHandle && (
-                      <button
-                        onClick={() => setDirectoryHandle(null)}
-                        className="p-3 rounded-xl border-2 border-red-100 text-red-500 hover:bg-red-50 transition-colors"
-                        title="Limpiar carpeta"
-                      >
-                        <X size={16} />
-                      </button>
-                    )}
+                    {/* Folder is selected at export time; no persistent selection button */}
                   </div>
                 </div>
             </div>

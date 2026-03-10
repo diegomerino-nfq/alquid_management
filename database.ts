@@ -93,6 +93,7 @@ export const queries = {
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
   `),
   getRepoFiles: db.prepare('SELECT * FROM repository_files WHERE client = ? AND geography IS ? AND env = ? ORDER BY version DESC'),
+  getRepoFileById: db.prepare('SELECT id FROM repository_files WHERE id = ?'),
   getLatestVersion: db.prepare('SELECT MAX(version) as maxV FROM repository_files WHERE client = ? AND geography IS ? AND env = ? AND filename = ?'),
   getRepoSummary: db.prepare(`
     SELECT

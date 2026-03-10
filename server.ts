@@ -434,10 +434,18 @@ async function startServer() {
   app.delete('/api/repository/:id', (req, res) => {
     const { id } = req.params;
     try {
+      // Check existence first to provide clearer response
+      const exists = queries.getRepoFileById.get(id);
+      if (!exists) {
+        console.warn(`[REPO] Delete requested for non-existent id: ${id}`);
+        res.status(404).json({ error: 'File not found' });
+        return;
+      }
       queries.deleteRepoFile.run(id);
       queries.addLog.run('REPOSITORIO', 'ELIMINAR_ARCHIVO', `Archivo eliminado ID: ${id}`, 'WARNING');
       res.status(204).end();
     } catch (error: any) {
+      console.error('[REPO] Error deleting file:', error);
       res.status(500).json({ error: error.message });
     }
   });

@@ -128,8 +128,8 @@ export function validateReportJson(
                 allowedDbs = Array.from(new Set(allowedDbs));
                 if (allowedDbs.length > 0) {
                     if (!allowedDbs.includes(query.database)) {
-                        add('ERROR', ri, qi, rName, fName, 'DATABASE_NO_PERMITIDA',
-                            `BD "${query.database}" no está permitida para ${region}/${env}. Permitidas: ${allowedDbs.join(', ')}`);
+                                add('ERROR', ri, qi, rName, fName, 'DATABASE_NO_PERMITIDA',
+                                    `BD "${query.database}" no está permitida para ${region}/${env}. Permitidas: ${allowedDbs.join(', ')}`);
                     }
                 }
             }
