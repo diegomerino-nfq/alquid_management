@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useRef, useEffect } from 'react';
-import { FileCode, Database, Code, Square, CheckSquare, Filter, Search, X, FileWarning, AlertTriangle } from 'lucide-react';
+import { FileCode, Database, Code, Square, CheckSquare, Filter, Search, X, FileWarning, AlertTriangle, FolderOpen } from 'lucide-react';
 import FileInput from '../components/FileInput';
 import PageHeader from '../components/PageHeader';
 import { QueryDefinition } from '../types';
@@ -15,6 +15,7 @@ const SqlExtractor: React.FC = () => {
   } = useGlobalState();
 
   const [selectedQueries, setSelectedQueries] = useState<Set<string>>(new Set());
+  const [directoryHandle, setDirectoryHandle] = useState<any>(null);
   
   // Validation Error Modal State
   const [validationError, setValidationError] = useState<{
@@ -67,6 +68,20 @@ const SqlExtractor: React.FC = () => {
       return errors;
   };
 
+  const handleSelectFolder = async () => {
+    try {
+      // @ts-ignore
+      const handle = await (window as any).showDirectoryPicker();
+      setDirectoryHandle(handle);
+      addLog('EXTRACCIÓN', 'CARPETA_SELECCIONADA', `Carpeta seleccionada: ${handle.name}`, 'SUCCESS');
+    } catch (err: any) {
+      if (err.name !== 'AbortError') {
+        console.error('Error selecting directory:', err);
+        addLog('EXTRACCIÓN', 'ERROR_CARPETA', `Error al seleccionar carpeta: ${err.message}`, 'ERROR');
+      }
+    }
+  };
+
   const handleQueriesLoaded = (content: string, fileName: string) => {
     try {
       const json = JSON.parse(content);
@@ -117,29 +132,71 @@ const SqlExtractor: React.FC = () => {
     
     let processedCount = 0;
 
+    const writeToDirectory = async (q: QueryDefinition, content: string) => {
+      if (!directoryHandle) return false;
+      try {
+        const parts = q.filename.split('/');
+        if (parts.length > 1) {
+          const dirName = parts[0];
+          const fileNameOnly = parts.slice(1).join('/');
+          const subDir = await directoryHandle.getDirectoryHandle(dirName, { create: true });
+          const fileHandle = await subDir.getFileHandle(`${fileNameOnly}.sql`, { create: true });
+          const writable = await fileHandle.createWritable();
+          await writable.write(content);
+          await writable.close();
+        } else {
+          const fileHandle = await directoryHandle.getFileHandle(`${q.filename}.sql`, { create: true });
+          const writable = await fileHandle.createWritable();
+          await writable.write(content);
+          await writable.close();
+        }
+        return true;
+      } catch (err) {
+        console.error('FS Write Error:', err);
+        return false;
+      }
+    };
+
     if (Array.isArray(extractReports.data)) {
-        extractReports.data.forEach(r => {
+        extractReports.data.forEach(async r => {
             if (Array.isArray(r.queries)) {
-                r.queries.forEach(q => {
+                for (const q of r.queries) {
                     const id = `${r.report}|${q.filename}`;
-                    if (selectedQueries.has(id)) {
+                    if (!selectedQueries.has(id)) continue;
                     const rawSql = prepareFinalSql(q, extractLoadId);
                     const prettySql = formatSqlBonito(rawSql);
-                    // Removed headers as requested
                     const content = prettySql;
-                    
-                    const blob = new Blob([content], { type: 'text/sql' });
-                    const url = window.URL.createObjectURL(blob);
-                    const a = document.createElement('a');
-                    a.href = url;
-                    a.download = `${q.filename.replace(/\//g, '_')}.sql`;
-                    document.body.appendChild(a);
-                    a.click();
-                    document.body.removeChild(a);
-                    
-                    processedCount++;
+
+                    let written = false;
+                    if (directoryHandle) {
+                      written = await writeToDirectory(q, content);
+                      if (!written) {
+                        // fallback to standard download
+                        const blob = new Blob([content], { type: 'text/sql' });
+                        const url = window.URL.createObjectURL(blob);
+                        const a = document.createElement('a');
+                        a.href = url;
+                        // replace slashes when not using FS API
+                        a.download = `${q.filename.replace(/\//g, '_')}.sql`;
+                        document.body.appendChild(a);
+                        a.click();
+                        document.body.removeChild(a);
+                        window.URL.revokeObjectURL(url);
+                      }
+                    } else {
+                      const blob = new Blob([content], { type: 'text/sql' });
+                      const url = window.URL.createObjectURL(blob);
+                      const a = document.createElement('a');
+                      a.href = url;
+                      a.download = `${q.filename.replace(/\//g, '_')}.sql`;
+                      document.body.appendChild(a);
+                      a.click();
+                      document.body.removeChild(a);
+                      window.URL.revokeObjectURL(url);
                     }
-                });
+
+                    processedCount++;
+                }
             }
         });
     }
@@ -390,6 +447,28 @@ const SqlExtractor: React.FC = () => {
                      placeholder="Seleccionar Load ID"
                      className="w-full bg-white text-gray-900 border border-gray-300 rounded-lg py-3 px-4 leading-tight focus:outline-none focus:ring-2 focus:ring-alquid-navy focus:border-transparent font-mono shadow-sm placeholder-gray-400"
                    />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">Carpeta destino</label>
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={handleSelectFolder}
+                      className={`flex-1 py-3 px-4 rounded-xl border-2 transition-all flex items-center justify-center gap-2 font-semibold text-sm ${directoryHandle ? 'bg-green-50 border-green-200 text-green-700' : 'bg-gray-50 border-gray-200 text-gray-600'}`}
+                    >
+                      <FolderOpen size={16} />
+                      {directoryHandle ? `Carpeta: ${directoryHandle.name}` : 'Seleccionar Carpeta'}
+                    </button>
+                    {directoryHandle && (
+                      <button
+                        onClick={() => setDirectoryHandle(null)}
+                        className="p-3 rounded-xl border-2 border-red-100 text-red-500 hover:bg-red-50 transition-colors"
+                        title="Limpiar carpeta"
+                      >
+                        <X size={16} />
+                      </button>
+                    )}
+                  </div>
                 </div>
             </div>
          </div>
