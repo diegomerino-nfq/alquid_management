@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useRef, useEffect } from 'react';
-import { FileCode, Database, Code, Square, CheckSquare, Filter, Search, X, FileWarning, AlertTriangle, FolderOpen } from 'lucide-react';
+import { FileCode, Database, Code, Square, CheckSquare, Filter, Search, X, FileWarning, AlertTriangle } from 'lucide-react';
 import FileInput from '../components/FileInput';
 import PageHeader from '../components/PageHeader';
 import { QueryDefinition } from '../types';
@@ -15,7 +15,6 @@ const SqlExtractor: React.FC = () => {
   } = useGlobalState();
 
   const [selectedQueries, setSelectedQueries] = useState<Set<string>>(new Set());
-  const [directoryHandle, setDirectoryHandle] = useState<any>(null);
   
   // Validation Error Modal State
   const [validationError, setValidationError] = useState<{
@@ -127,78 +126,85 @@ const SqlExtractor: React.FC = () => {
     setSelectedQueries(newSet);
   };
 
-  const handleExport = () => {
+  const handleExport = async () => {
     if (selectedQueries.size === 0) return alert("Selecciona al menos una query");
     
     let processedCount = 0;
-
-    const writeToDirectory = async (q: QueryDefinition, content: string) => {
-      if (!directoryHandle) return false;
-      try {
-        const parts = q.filename.split('/');
-        if (parts.length > 1) {
-          const dirName = parts[0];
-          const fileNameOnly = parts.slice(1).join('/');
-          const subDir = await directoryHandle.getDirectoryHandle(dirName, { create: true });
-          const fileHandle = await subDir.getFileHandle(`${fileNameOnly}.sql`, { create: true });
-          const writable = await fileHandle.createWritable();
-          await writable.write(content);
-          await writable.close();
-        } else {
-          const fileHandle = await directoryHandle.getFileHandle(`${q.filename}.sql`, { create: true });
-          const writable = await fileHandle.createWritable();
-          await writable.write(content);
-          await writable.close();
-        }
-        return true;
-      } catch (err) {
-        console.error('FS Write Error:', err);
-        return false;
-      }
-    };
+    // Prompt for destination and create base folder Informes/General/General/yy/mm/dd
+    let baseDir: any = null;
+    try {
+      // @ts-ignore
+      const root = await (window as any).showDirectoryPicker();
+      const informes = await root.getDirectoryHandle('Informes', { create: true });
+      const regionDir = await informes.getDirectoryHandle('General', { create: true });
+      const envDir = await regionDir.getDirectoryHandle('General', { create: true });
+      const d = new Date();
+      const yy = String(d.getFullYear()).slice(-2);
+      const mm = String(d.getMonth() + 1).padStart(2, '0');
+      const dd = String(d.getDate()).padStart(2, '0');
+      const yearDir = await envDir.getDirectoryHandle(yy, { create: true });
+      const monthDir = await yearDir.getDirectoryHandle(mm, { create: true });
+      baseDir = await monthDir.getDirectoryHandle(dd, { create: true });
+    } catch (err: any) {
+      if (err && err.name !== 'AbortError') console.error('Error picking directory:', err);
+      baseDir = null;
+    }
 
     if (Array.isArray(extractReports.data)) {
-        extractReports.data.forEach(async r => {
-            if (Array.isArray(r.queries)) {
-                for (const q of r.queries) {
-                    const id = `${r.report}|${q.filename}`;
-                    if (!selectedQueries.has(id)) continue;
-                    const rawSql = prepareFinalSql(q, extractLoadId);
-                    const prettySql = formatSqlBonito(rawSql);
-                    const content = prettySql;
+        for (const r of extractReports.data) {
+            if (!Array.isArray(r.queries)) continue;
+            for (const q of r.queries) {
+                const id = `${r.report}|${q.filename}`;
+                if (!selectedQueries.has(id)) continue;
+                const rawSql = prepareFinalSql(q, extractLoadId);
+                const prettySql = formatSqlBonito(rawSql);
+                const content = prettySql;
 
-                    let written = false;
-                    if (directoryHandle) {
-                      written = await writeToDirectory(q, content);
-                      if (!written) {
-                        // fallback to standard download
-                        const blob = new Blob([content], { type: 'text/sql' });
-                        const url = window.URL.createObjectURL(blob);
-                        const a = document.createElement('a');
-                        a.href = url;
-                        // replace slashes when not using FS API
-                        a.download = `${q.filename.replace(/\//g, '_')}.sql`;
-                        document.body.appendChild(a);
-                        a.click();
-                        document.body.removeChild(a);
-                        window.URL.revokeObjectURL(url);
-                      }
+                if (baseDir) {
+                  try {
+                    const parts = q.filename.split('/');
+                    if (parts.length > 1) {
+                      const dirName = parts[0];
+                      const fileNameOnly = parts.slice(1).join('/');
+                      const subDir = await baseDir.getDirectoryHandle(dirName, { create: true });
+                      const fileHandle = await subDir.getFileHandle(`${fileNameOnly}.sql`, { create: true });
+                      const writable = await fileHandle.createWritable();
+                      await writable.write(content);
+                      await writable.close();
                     } else {
-                      const blob = new Blob([content], { type: 'text/sql' });
-                      const url = window.URL.createObjectURL(blob);
-                      const a = document.createElement('a');
-                      a.href = url;
-                      a.download = `${q.filename.replace(/\//g, '_')}.sql`;
-                      document.body.appendChild(a);
-                      a.click();
-                      document.body.removeChild(a);
-                      window.URL.revokeObjectURL(url);
+                      const fileHandle = await baseDir.getFileHandle(`${q.filename}.sql`, { create: true });
+                      const writable = await fileHandle.createWritable();
+                      await writable.write(content);
+                      await writable.close();
                     }
-
-                    processedCount++;
+                  } catch (err) {
+                    console.error('FS Write Error:', err);
+                    // fallback to download
+                    const blob = new Blob([content], { type: 'text/sql' });
+                    const url = window.URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = `${q.filename.replace(/\//g, '_')}.sql`;
+                    document.body.appendChild(a);
+                    a.click();
+                    document.body.removeChild(a);
+                    window.URL.revokeObjectURL(url);
+                  }
+                } else {
+                  const blob = new Blob([content], { type: 'text/sql' });
+                  const url = window.URL.createObjectURL(blob);
+                  const a = document.createElement('a');
+                  a.href = url;
+                  a.download = `${q.filename.replace(/\//g, '_')}.sql`;
+                  document.body.appendChild(a);
+                  a.click();
+                  document.body.removeChild(a);
+                  window.URL.revokeObjectURL(url);
                 }
+
+                processedCount++;
             }
-        });
+        }
     }
 
     if (processedCount > 0) {

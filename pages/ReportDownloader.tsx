@@ -30,7 +30,7 @@ const ReportDownloader: React.FC = () => {
   const [isProcessing, setIsProcessing] = useState(false);
   const [progress, setProgress] = useState(0);
   const [logs, setLogs] = useState<string[]>([]);
-  const [directoryHandle, setDirectoryHandle] = useState<any>(null);
+  // Directory is selected at download time via showDirectoryPicker()
 
   // Validation Error Modal State
   const [validationError, setValidationError] = useState<{
@@ -145,19 +145,7 @@ const ReportDownloader: React.FC = () => {
     }
   };
 
-  const handleSelectFolder = async () => {
-    try {
-      // @ts-ignore
-      const handle = await window.showDirectoryPicker();
-      setDirectoryHandle(handle);
-      addLog('DESCARGA', 'CARPETA_SELECCIONADA', `Carpeta seleccionada: ${handle.name}`, 'SUCCESS');
-    } catch (err: any) {
-      if (err.name !== 'AbortError') {
-        console.error('Error selecting directory:', err);
-        addLog('DESCARGA', 'ERROR_CARPETA', `Error al seleccionar carpeta: ${err.message}`, 'ERROR');
-      }
-    }
-  };
+  // Directory picker is opened when starting the download (no persistent folder button)
 
   const handleConfigLoaded = async (content: string, fileName: string) => {
     try {
@@ -370,6 +358,27 @@ const ReportDownloader: React.FC = () => {
 
     const total = itemsToRun.length;
     let errorCount = 0;
+
+    // Prompt user for destination folder and create base structure
+    let baseDir: any = null;
+    try {
+      // @ts-ignore
+      const root = await (window as any).showDirectoryPicker();
+      const informes = await root.getDirectoryHandle('Informes', { create: true });
+      const regionDir = await informes.getDirectoryHandle(downloadRegion || 'General', { create: true });
+      const envDir = await regionDir.getDirectoryHandle(downloadEnv || 'General', { create: true });
+      const d = new Date();
+      const yy = String(d.getFullYear()).slice(-2);
+      const mm = String(d.getMonth() + 1).padStart(2, '0');
+      const dd = String(d.getDate()).padStart(2, '0');
+      const yearDir = await envDir.getDirectoryHandle(yy, { create: true });
+      const monthDir = await yearDir.getDirectoryHandle(mm, { create: true });
+      baseDir = await monthDir.getDirectoryHandle(dd, { create: true });
+    } catch (err: any) {
+      // If user cancels folder pick, baseDir stays null and fallback to standard downloads
+      if (err && err.name !== 'AbortError') console.error('Error picking directory:', err);
+      baseDir = null;
+    }
 
     for (let i = 0; i < total; i++) {
       const item = itemsToRun[i];
@@ -1008,28 +1017,37 @@ const ReportDownloader: React.FC = () => {
               <button
                 onClick={handleSelectFolder}
                 className={`flex-1 py-3 px-4 rounded-xl border-2 transition-all flex items-center justify-center gap-2 font-semibold text-sm
-                  ${directoryHandle
-                    ? 'bg-green-50 border-green-200 text-green-700 hover:bg-green-100'
-                    : 'bg-gray-50 border-gray-200 text-gray-600 hover:bg-gray-100'
-                  }
-                `}
-              >
-                <FolderOpen size={18} />
-                {directoryHandle ? `Carpeta: ${directoryHandle.name}` : 'Seleccionar Carpeta'}
-              </button>
-              {directoryHandle && (
-                <button
-                  onClick={() => setDirectoryHandle(null)}
-                  className="p-3 rounded-xl border-2 border-red-100 text-red-500 hover:bg-red-50 transition-colors"
-                  title="Limpiar carpeta"
-                >
-                  <X size={18} />
-                </button>
-              )}
-            </div>
-
-            {isProcessing && (
-              <div className="mb-3">
+                  if (baseDir) {
+                    try {
+                      const parts = item.query.filename.split('/');
+                      if (parts.length > 1) {
+                        const dirName = parts[0];
+                        const fileNameOnly = parts.slice(1).join('/');
+                        const subDir = await baseDir.getDirectoryHandle(dirName, { create: true });
+                        const fileHandle = await subDir.getFileHandle(`${fileNameOnly}.csv`, { create: true });
+                        const writable = await fileHandle.createWritable();
+                        await writable.write(blob);
+                        await writable.close();
+                      } else {
+                        const fileHandle = await baseDir.getFileHandle(`${item.query.filename}.csv`, { create: true });
+                        const writable = await fileHandle.createWritable();
+                        await writable.write(blob);
+                        await writable.close();
+                      }
+                    } catch (fsErr: any) {
+                      console.error('FS Write Error:', fsErr);
+                      addLog('DESCARGA', 'ERROR_ESCRIBIENDO', `Error escribiendo a carpeta: ${fsErr.message}`, 'WARNING');
+                      // Fallback to regular download if FS fails
+                      const url = window.URL.createObjectURL(blob);
+                      const a = document.createElement('a');
+                      a.href = url;
+                      a.download = `${item.query.filename.replace(/\//g, '_')}.csv`;
+                      document.body.appendChild(a);
+                      a.click();
+                      document.body.removeChild(a);
+                      window.URL.revokeObjectURL(url);
+                    }
+                  } else {
                 <div className="flex justify-between text-xs font-semibold text-gray-600 mb-1">
                   <span>Procesando descarga...</span>
                   <span>{progress}%</span>
