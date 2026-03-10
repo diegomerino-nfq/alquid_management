@@ -425,13 +425,23 @@ const ReportDownloader: React.FC = () => {
         const blob = new Blob(["\uFEFF", csvContent], { type: 'text/csv;charset=utf-8;' });
 
         if (directoryHandle) {
-          // Save using File System Access API
-          const fsName = `${item.query.filename.replace(/\//g, '_')}.csv`;
+          // Save using File System Access API. Preserve subfolders in filename like "1.Internos/SMM"
           try {
-            const fileHandle = await directoryHandle.getFileHandle(fsName, { create: true });
-            const writable = await fileHandle.createWritable();
-            await writable.write(blob);
-            await writable.close();
+            const parts = item.query.filename.split('/');
+            if (parts.length > 1) {
+              const dirName = parts[0];
+              const fileNameOnly = parts.slice(1).join('/');
+              const subDir = await directoryHandle.getDirectoryHandle(dirName, { create: true });
+              const fileHandle = await subDir.getFileHandle(`${fileNameOnly}.csv`, { create: true });
+              const writable = await fileHandle.createWritable();
+              await writable.write(blob);
+              await writable.close();
+            } else {
+              const fileHandle = await directoryHandle.getFileHandle(`${item.query.filename}.csv`, { create: true });
+              const writable = await fileHandle.createWritable();
+              await writable.write(blob);
+              await writable.close();
+            }
           } catch (fsErr: any) {
             console.error('FS Write Error:', fsErr);
             addLog('DESCARGA', 'ERROR_ESCRIBIENDO', `Error escribiendo a carpeta: ${fsErr.message}`, 'WARNING');
@@ -439,7 +449,7 @@ const ReportDownloader: React.FC = () => {
             const url = window.URL.createObjectURL(blob);
             const a = document.createElement('a');
             a.href = url;
-            a.download = fsName;
+            a.download = `${item.query.filename.replace(/\//g, '_')}.csv`;
             document.body.appendChild(a);
             a.click();
             document.body.removeChild(a);

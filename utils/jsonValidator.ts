@@ -89,11 +89,15 @@ export function validateReportJson(
                 add('CRITICAL', ri, qi, rName, fName, 'SQL_VACÍO', `El campo "sql" está vacío o no es un string.`);
             }
 
-            // Rule 6: filename field
+            // Rule 6: filename field (allow subfolder convention using '/'
             if (!query.filename || typeof query.filename !== 'string' || !query.filename.trim()) {
                 add('ERROR', ri, qi, rName, fName, 'FILENAME_VACÍO', `El campo "filename" está vacío.`);
             } else if (query.filename.includes('/')) {
-                add('ERROR', ri, qi, rName, fName, 'FILENAME_BARRA', `El filename no debe contener "/": "${query.filename}".`);
+                // Validate that parts are non-empty (e.g., "1.Internos/SMM")
+                const parts = query.filename.split('/');
+                if (parts.some(p => !p || !p.trim())) {
+                    add('ERROR', ri, qi, rName, fName, 'FILENAME_BARRA_INVALIDA', `El campo "filename" contiene segmentos vacíos: "${query.filename}".`);
+                }
             }
 
             // Rule 7: database field
