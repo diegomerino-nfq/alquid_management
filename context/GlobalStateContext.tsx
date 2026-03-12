@@ -65,7 +65,7 @@ interface GlobalState {
   repositorySummary: { region: string, env: string, count: number }[];
   fetchRepositoryFiles: (region: string, env: string) => Promise<void>;
   fetchRepositorySummary: () => Promise<void>;
-  addRepositoryFile: (region: string, env: string, content: any, fileName: string, comment?: string) => Promise<void>;
+  addRepositoryFile: (region: string, env: string, content: any, fileName: string, comment?: string) => Promise<any>;
   deleteRepositoryFile: (id: string, region: string, env: string) => Promise<void>;
 }
 
@@ -199,7 +199,7 @@ export const GlobalStateProvider: React.FC<{ children: ReactNode }> = ({ childre
     }
 
     try {
-      await axios.post('/api/repository', {
+      const res = await axios.post('/api/repository', {
         client,
         geography,
         env,
@@ -208,10 +208,13 @@ export const GlobalStateProvider: React.FC<{ children: ReactNode }> = ({ childre
         uploadedBy: user?.email || "Admin User",
         comment: comment || ""
       });
+      // Log the server response for debugging
+      console.log('[Repo Upload] Server response:', res.data);
       // Refresh both data and summary
       await fetchRepositoryFiles(client, geography, env);
       await fetchRepositorySummary();
       addLog('REPOSITORIO', 'SUBIDA_EXITOSA', `Archivo ${fileName} subido a ${client}/${geography || 'sin geografía'}/${env}`, 'SUCCESS');
+      return res.data;
     } catch (err) {
       console.error('Error uploading repo file:', err);
       throw err;

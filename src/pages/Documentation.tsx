@@ -1,6 +1,6 @@
 import React from 'react';
 import { BookOpen, FileText, Presentation, Download, Database, FileJson, Archive, Settings, ChevronRight, Info, AlertTriangle, CheckCircle, Search, LayoutTemplate, MousePointerClick, PlayCircle } from 'lucide-react';
-import PageHeader from '../components/PageHeader';
+import PageHeader from '../../components/PageHeader';
 import PptxGenJS from 'pptxgenjs';
 
 // --- MOCK UI COMPONENTS (Wireframes de alta fidelidad) ---
@@ -418,7 +418,7 @@ const Documentation: React.FC = () => {
             bulletPoints.slice(0, 7).forEach(bp => {
                 slide.addText(bp, { 
                     x: 0.6, y: yPos, w: 6.0, fontSize: 10, color: '555555', 
-                    bullet: { type: 'number', color: 'EE2833' }, paraSpaceAfter: 4
+                    bullet: { type: 'number' }, paraSpaceAfter: 4
                 });
                 yPos += 0.45;
             });

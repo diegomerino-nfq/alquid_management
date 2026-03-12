@@ -116,6 +116,9 @@ const ReportDownloader: React.FC = () => {
 
     // Update state
     setDownloadReports(json, fileName);
+    // Reset region/env when loading a new JSON to avoid stale selections
+    setDownloadRegion('');
+    setDownloadEnv('');
 
     // Auto-sync to repository removed: downloader does not know client/geography mapping
 
@@ -676,22 +679,32 @@ const ReportDownloader: React.FC = () => {
                     </p>
                   </div>
                 </div>
-                {!isProcessing ? (
+                {isProcessing ? (
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => setIsExecutionModalOpen(false)}
+                      className="p-2 hover:bg-gray-100 rounded-full transition-colors text-gray-400 hover:text-gray-600"
+                      title="Cerrar (no detiene proceso)"
+                    >
+                      <X size={24} />
+                    </button>
+                    <button
+                      onClick={() => {
+                        cancelDownload();
+                        setIsExecutionModalOpen(false);
+                      }}
+                      className="flex items-center gap-2 px-4 py-2 bg-red-50 text-red-600 hover:bg-red-600 hover:text-white rounded-xl font-bold text-sm transition-all border border-red-100"
+                    >
+                      <XCircle size={18} />
+                      Cancelar Descarga
+                    </button>
+                  </div>
+                ) : (
                   <button
                     onClick={() => setIsExecutionModalOpen(false)}
                     className="p-2 hover:bg-gray-100 rounded-full transition-colors text-gray-400 hover:text-gray-600"
                   >
                     <X size={24} />
-                  </button>
-                ) : (
-                  <button
-                    onClick={() => {
-                      abortControllerRef.current = true;
-                    }}
-                    className="flex items-center gap-2 px-4 py-2 bg-red-50 text-red-600 hover:bg-red-600 hover:text-white rounded-xl font-bold text-sm transition-all border border-red-100"
-                  >
-                    <XCircle size={18} />
-                    Cancelar Descarga
                   </button>
                 )}
               </div>

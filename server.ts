@@ -533,7 +533,24 @@ async function startServer() {
         await bucket.file(`${client}/${geography || 'general'}/${env}/${filename}_v${nextVersion}.json`).save(JSON.stringify(content, null, 2));
       }
 
-      res.status(201).json({ id, version: nextVersion });
+      // After insert, fetch the updated list for this client/geography/env to help debugging and immediate UI sync
+      try {
+        const files = queries.getRepoFiles.all(client, geographyValue, env) as any[];
+        const parsedFiles = files.map(f => ({
+          ...f,
+          fileName: f.filename,
+          uploadedAt: f.uploaded_at.replace(' ', 'T') + 'Z',
+          uploadedBy: f.uploaded_by,
+          comment: f.comment,
+          content: JSON.parse(f.content)
+        }));
+        console.log('[REPO] Post-insert files count:', parsedFiles.length);
+        res.status(201).json({ id, version: nextVersion, files: parsedFiles });
+      } catch (pfErr: any) {
+        console.warn('[REPO] Could not fetch files after insert:', pfErr.message);
+        res.status(201).json({ id, version: nextVersion });
+      }
+
       queries.addLog.run('REPOSITORIO', 'SUBIDA_EXITOSA', `Archivo v${nextVersion} guardado: ${filename} en ${client} ${geography || 'general'} ${env}`, 'SUCCESS');
     } catch (error: any) {
       console.error('Repository upload error:', error.message);

@@ -326,7 +326,7 @@ const Repository: React.FC = () => {
     const confirmUpload = async () => {
         if (validation.contentToUpload && selectedClient && selectedEnv) {
             try {
-                await addRepositoryFile(
+                const res = await addRepositoryFile(
                     selectedClient,
                     selectedGeography || null,
                     selectedEnv,
@@ -334,6 +334,17 @@ const Repository: React.FC = () => {
                     validation.fileName,
                     versionComment
                 );
+                // If server returned the updated files list, use it to set the selected file immediately
+                if (res && Array.isArray(res.files) && res.files.length > 0) {
+                    const newest = res.files.sort((a: any, b: any) => b.version - a.version)[0];
+                    setSelectedFile(newest);
+                } else {
+                    // Fallback: refresh and pick first from refreshed repositoryData
+                    await fetchRepositoryFiles(selectedClient, selectedGeography || null, selectedEnv);
+                    const geoKey = selectedGeography || 'null';
+                    const files = repositoryData[selectedClient]?.[geoKey]?.[selectedEnv] || [];
+                    if (files && files.length > 0) setSelectedFile(files.sort((a: any, b: any) => b.version - a.version)[0]);
+                }
                 addLog('REPOSITORIO', 'SUBIDA_EXITOSA', `Archivo cargado en ${selectedClient} ${selectedGeography || 'sin geografía'} ${selectedEnv}: ${validation.fileName}`, 'SUCCESS');
                 setValidation({ ...validation, isOpen: false });
                 setVersionComment("");
