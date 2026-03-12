@@ -12,6 +12,7 @@ import LoginPage from './pages/LoginPage';
 import AdminPanel from './pages/AdminPanel';
 import IntroAnimation from './components/IntroAnimation';
 import { GlobalStateProvider, useGlobalState } from './context/GlobalStateContext';
+import Compare from './pages/Compare';
 
 const AppContent: React.FC = () => {
   const { user } = useGlobalState();
@@ -36,6 +37,7 @@ const AppContent: React.FC = () => {
           <Route path="/extract" element={<SqlExtractor />} />
           <Route path="/editor" element={<JsonEditor />} />
           <Route path="/repository" element={<Repository />} />
+          <Route path="/compare" element={<Compare />} />
           <Route path="/activity" element={<ActivityLog />} />
           <Route path="/documentation" element={<Documentation />} />
           {user.role === 'admin' && <Route path="/admin" element={<AdminPanel />} />}

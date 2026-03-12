@@ -1,4 +1,5 @@
 import React, { useRef, useState, useMemo, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Archive, Upload, FileJson, Download, ChevronRight, Folder, Database, X, ArrowLeft, GitCompare, ArrowRightLeft, Check, AlertTriangle, Plus, Minus, Calendar, User, Clock, ShieldCheck, XCircle, FileText, Github, Save, Trash2 } from 'lucide-react';
 import PageHeader from '../components/PageHeader';
 import { useGlobalState } from '../context/GlobalStateContext';
@@ -7,7 +8,6 @@ import { formatSqlBonito } from '../utils/sqlFormatter';
 import { findAbsoluteReferences } from '../utils/jsonValidator';
 import QueryValidatorModal, { InvalidQuery } from '../components/QueryValidatorModal';
 import { Octokit } from 'octokit';
-import DiffModal from '../components/DiffModal';
 
 // Helper Types
 type DiffStatus = 'ADDED' | 'REMOVED' | 'MODIFIED' | 'UNCHANGED';
@@ -77,7 +77,7 @@ const Repository: React.FC = () => {
 
     // Comparison State
     const [selectedForCompare, setSelectedForCompare] = useState<string[]>([]);
-    const [isCompareModalOpen, setIsCompareModalOpen] = useState(false);
+    const navigate = useNavigate();
     const [versionComment, setVersionComment] = useState("");
 
     // File Details Modal
@@ -580,7 +580,14 @@ const Repository: React.FC = () => {
 
                     {selectedClient && selectedGeography && selectedEnv && (
                         <button
-                            onClick={() => setIsCompareModalOpen(true)}
+                            onClick={() => {
+                                if (selectedForCompare.length === 2 && selectedClient && selectedEnv) {
+                                    const oldId = encodeURIComponent(selectedForCompare[0]);
+                                    const newId = encodeURIComponent(selectedForCompare[1]);
+                                    const geo = selectedGeography ? encodeURIComponent(selectedGeography) : '';
+                                    navigate(`/compare?client=${encodeURIComponent(selectedClient)}&geo=${geo}&env=${encodeURIComponent(selectedEnv)}&old=${oldId}&new=${newId}`);
+                                }
+                            }}
                             disabled={selectedForCompare.length !== 2}
                             className={`
                                 flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-bold transition-all shadow-sm
@@ -1192,27 +1199,7 @@ const Repository: React.FC = () => {
                 </div>
             )}
 
-            {/* COMPARISON MODAL: split diff view */}
-            {isCompareModalOpen && generateDiff && (() => {
-                const geographyKey = selectedGeography || 'null';
-                const files = repositoryData[selectedClient!]?.[geographyKey]?.[selectedEnv!]?.filter((f: any) => selectedForCompare.includes(f.id)) || [];
-                if (files.length !== 2) return null;
-                const sortedFiles = files.sort((a: any, b: any) => a.version - b.version);
-                const oldFile = sortedFiles[0];
-                const newFile = sortedFiles[1];
-                const oldText = typeof oldFile.content === 'string' ? oldFile.content : JSON.stringify(oldFile.content, null, 2);
-                const newText = typeof newFile.content === 'string' ? newFile.content : JSON.stringify(newFile.content, null, 2);
-                return (
-                    <DiffModal
-                        isOpen={isCompareModalOpen}
-                        onClose={() => setIsCompareModalOpen(false)}
-                        oldText={oldText}
-                        newText={newText}
-                        leftTitle={`v${oldFile.version} • ${oldFile.fileName}`}
-                        rightTitle={`v${newFile.version} • ${newFile.fileName}`}
-                    />
-                );
-            })()}
+            {/* Comparison moved to dedicated page: /compare */}
 
             {/* FILE DETAILS MODAL */}
             {selectedFile && (
