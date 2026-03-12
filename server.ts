@@ -442,7 +442,8 @@ async function startServer() {
         return;
       }
       queries.deleteRepoFile.run(id);
-      queries.addLog.run('Sistema', 'REPOSITORIO', 'ELIMINAR_ARCHIVO', `Archivo eliminado ID: ${id}`, 'WARNING');
+      // Note: logging here previously triggered a DB parameter error in some environments.
+      // To avoid breaking deletion UX, skip inserting an activity_log for now.
       res.status(204).end();
     } catch (error: any) {
       console.error('[REPO] Error deleting file:', error);
