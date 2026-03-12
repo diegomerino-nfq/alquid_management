@@ -7,6 +7,7 @@ import { formatSqlBonito } from '../utils/sqlFormatter';
 import { findAbsoluteReferences } from '../utils/jsonValidator';
 import QueryValidatorModal, { InvalidQuery } from '../components/QueryValidatorModal';
 import { Octokit } from 'octokit';
+import DiffModal from '../components/DiffModal';
 
 // Helper Types
 type DiffStatus = 'ADDED' | 'REMOVED' | 'MODIFIED' | 'UNCHANGED';
@@ -1191,25 +1192,27 @@ const Repository: React.FC = () => {
                 </div>
             )}
 
-            {/* COMPARISON MODAL - Simplified for now */}
-            {isCompareModalOpen && generateDiff && (
-                <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
-                    <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl flex flex-col animate-fade-in border border-gray-200">
-                        <div className="flex items-center justify-between p-6 border-b border-gray-100">
-                            <h3 className="text-lg font-bold">Comparación de Versiones</h3>
-                            <button onClick={() => setIsCompareModalOpen(false)} className="text-gray-400 hover:text-gray-600">
-                                <X size={24} />
-                            </button>
-                        </div>
-                        <div className="p-6 text-center text-gray-500">
-                            Comparación: v{generateDiff.oldVersion} vs v{generateDiff.newVersion}
-                            <div className="mt-4 text-sm">
-                                {generateDiff.diffs.length} diferencias encontradas
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            )}
+            {/* COMPARISON MODAL: split diff view */}
+            {isCompareModalOpen && generateDiff && (() => {
+                const geographyKey = selectedGeography || 'null';
+                const files = repositoryData[selectedClient!]?.[geographyKey]?.[selectedEnv!]?.filter((f: any) => selectedForCompare.includes(f.id)) || [];
+                if (files.length !== 2) return null;
+                const sortedFiles = files.sort((a: any, b: any) => a.version - b.version);
+                const oldFile = sortedFiles[0];
+                const newFile = sortedFiles[1];
+                const oldText = typeof oldFile.content === 'string' ? oldFile.content : JSON.stringify(oldFile.content, null, 2);
+                const newText = typeof newFile.content === 'string' ? newFile.content : JSON.stringify(newFile.content, null, 2);
+                return (
+                    <DiffModal
+                        isOpen={isCompareModalOpen}
+                        onClose={() => setIsCompareModalOpen(false)}
+                        oldText={oldText}
+                        newText={newText}
+                        leftTitle={`v${oldFile.version} • ${oldFile.fileName}`}
+                        rightTitle={`v${newFile.version} • ${newFile.fileName}`}
+                    />
+                );
+            })()}
 
             {/* FILE DETAILS MODAL */}
             {selectedFile && (
