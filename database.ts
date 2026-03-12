@@ -92,7 +92,7 @@ export const queries = {
     INSERT INTO repository_files (id, client, geography, env, filename, version, content, uploaded_by, comment)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
   `),
-  getRepoFiles: db.prepare('SELECT * FROM repository_files WHERE client = ? AND geography IS ? AND env = ? ORDER BY version DESC'),
+  getRepoFiles: db.prepare('SELECT * FROM repository_files WHERE client = ? AND geography IS ? AND env = ? ORDER BY uploaded_at DESC, version DESC'),
   getRepoFileById: db.prepare('SELECT id FROM repository_files WHERE id = ?'),
   getLatestVersion: db.prepare('SELECT MAX(version) as maxV FROM repository_files WHERE client = ? AND geography IS ? AND env = ? AND filename = ?'),
   getRepoSummary: db.prepare(`

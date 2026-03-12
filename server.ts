@@ -392,7 +392,7 @@ async function startServer() {
       res.json(resultData);
 
       // Log success
-      queries.addLog.run('DESCARGA', 'EJECUCION_QUERY', `Query ${query.filename} ejecutada con éxito en ${dbType}`, 'SUCCESS');
+        queries.addLog.run('Sistema', 'DESCARGA', 'EJECUCION_QUERY', `Query ${query.filename} ejecutada con éxito en ${dbType}`, 'SUCCESS');
 
     } catch (error: any) {
       console.error('Download error:', error.message);
@@ -409,7 +409,7 @@ async function startServer() {
       // Add a small hint about the credentials being used to help debug
       const authHint = (global as any).lastAuthDiag || 'No diagnostic info';
 
-      queries.addLog.run('DESCARGA', 'ERROR_QUERY', `Fallo en ${query.filename}: ${errorMsg}`, 'ERROR');
+      queries.addLog.run('Sistema', 'DESCARGA', 'ERROR_QUERY', `Fallo en ${query.filename}: ${errorMsg}`, 'ERROR');
       res.status(500).json({
         error: errorMsg,
         authDiag: authHint,
@@ -442,7 +442,7 @@ async function startServer() {
         return;
       }
       queries.deleteRepoFile.run(id);
-      queries.addLog.run('REPOSITORIO', 'ELIMINAR_ARCHIVO', `Archivo eliminado ID: ${id}`, 'WARNING');
+      queries.addLog.run('Sistema', 'REPOSITORIO', 'ELIMINAR_ARCHIVO', `Archivo eliminado ID: ${id}`, 'WARNING');
       res.status(204).end();
     } catch (error: any) {
       console.error('[REPO] Error deleting file:', error);
@@ -551,7 +551,7 @@ async function startServer() {
         res.status(201).json({ id, version: nextVersion });
       }
 
-      queries.addLog.run('REPOSITORIO', 'SUBIDA_EXITOSA', `Archivo v${nextVersion} guardado: ${filename} en ${client} ${geography || 'general'} ${env}`, 'SUCCESS');
+      queries.addLog.run('Sistema', 'REPOSITORIO', 'SUBIDA_EXITOSA', `Archivo v${nextVersion} guardado: ${filename} en ${client} ${geography || 'general'} ${env}`, 'SUCCESS');
     } catch (error: any) {
       console.error('Repository upload error:', error.message);
       res.status(500).json({ error: error.message });
