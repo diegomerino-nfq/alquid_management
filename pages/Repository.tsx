@@ -984,9 +984,17 @@ const Repository: React.FC = () => {
                                                                             if (window.confirm('¿Estás seguro de que deseas eliminar esta versión del archivo permanentemente?')) {
                                                                                 try {
                                                                                     await deleteRepositoryFile(file.id, selectedClient, selectedGeography || null, selectedEnv);
-                                                                                    // La UI se actualizará automáticamente cuando se refresquen los datos
-                                                                                } catch (error) {
-                                                                                    alert('Error al eliminar el archivo: ' + error.message);
+                                                                                    // Forzar limpieza de selección/local UI para reflejar el cambio inmediatamente
+                                                                                    setSelectedFile(prev => (prev && prev.id === file.id) ? null : prev);
+                                                                                    setSelectedForCompare(prev => prev.filter(id => id !== file.id));
+                                                                                    // Asegurar refresco final por si algo no actualizó correctamente
+                                                                                    if (selectedClient && selectedEnv) {
+                                                                                        await fetchRepositoryFiles(selectedClient, selectedGeography || null, selectedEnv);
+                                                                                        await fetchRepositorySummary();
+                                                                                    }
+                                                                                } catch (error: any) {
+                                                                                    const msg = error?.response?.data?.error || error?.message || String(error);
+                                                                                    alert('Error al eliminar el archivo: ' + msg);
                                                                                 }
                                                                             }
                                                                         }}
@@ -1211,7 +1219,7 @@ const Repository: React.FC = () => {
             {/* FILE DETAILS MODAL */}
             {selectedFile && (
                 <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
-                    <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[85vh] flex flex-col animate-fade-in overflow-hidden">
+                    <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[85vh] flex flex-col animate-fade-in overflow-hidden" style={{ resize: 'both', overflow: 'auto' }}>
                         <div className="flex items-center justify-between p-6 border-b border-gray-100">
                             <h3 className="text-xl font-bold">{selectedFile.fileName} (v{selectedFile.version})</h3>
                             <button onClick={() => setSelectedFile(null)} className="text-gray-400 hover:text-gray-600">
@@ -1219,7 +1227,7 @@ const Repository: React.FC = () => {
                             </button>
                         </div>
                         <div className="flex-1 overflow-y-auto p-6 bg-gray-50">
-                            <pre className="text-xs bg-white p-4 rounded border border-gray-200 overflow-x-auto">
+                            <pre className="text-xs bg-white p-4 rounded border border-gray-200" style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word', overflowWrap: 'anywhere' }}>
                                 {JSON.stringify(selectedFile.content, null, 2)}
                             </pre>
                         </div>
