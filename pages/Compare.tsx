@@ -38,48 +38,63 @@ const escapeHtml = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;')
 
 type LineRow = { left: string; right: string; status: 'UNCHANGED' | 'ADDED' | 'REMOVED' | 'MODIFIED' };
 
-const computeLineDiff = (oldText: string, newText: string): LineRow[] => {
-  // Use the `diff` library to compute line diffs, then align removed/added blocks
-  const a = formatSqlBonito(oldText);
-  const b = formatSqlBonito(newText);
-  const parts = diffLines(a, b);
-  const rows: LineRow[] = [];
-
-  for (let i = 0; i < parts.length; i++) {
-    const part = parts[i];
-    const lines = part.value.split('\n');
-    // Remove potential trailing empty line from split when value ends with \n
-    if (lines.length > 0 && lines[lines.length - 1] === '') lines.pop();
-
-    if (part.added) {
-      // If previous was removed, we'll pair them; otherwise, mark as added
-      const prev = parts[i - 1];
-      if (prev && prev.removed) {
-        const aLines = prev.value.split('\n');
-        if (aLines.length > 0 && aLines[aLines.length - 1] === '') aLines.pop();
-        const bLines = lines;
-        const max = Math.max(aLines.length, bLines.length);
-        for (let k = 0; k < max; k++) {
-          rows.push({ left: aLines[k] || '', right: bLines[k] || '', status: (aLines[k] && bLines[k]) ? 'MODIFIED' : (aLines[k] ? 'REMOVED' : 'ADDED') });
-        }
-        // skip handling prev here because we've consumed it
-      } else {
-        lines.forEach(l => rows.push({ left: '', right: l, status: 'ADDED' }));
-      }
-    } else if (part.removed) {
-      // If next is added, pairing will happen when next is processed; otherwise mark removed
-      const nxt = parts[i + 1];
-      if (nxt && nxt.added) {
-        // pairing handled in next iteration
-        continue;
-      } else {
-        lines.forEach(l => rows.push({ left: l, right: '', status: 'REMOVED' }));
-      }
-    } else {
-      // unchanged
-      lines.forEach(l => rows.push({ left: l, right: l, status: 'UNCHANGED' }));
+const levenshtein = (s: string, t: string) => {
+  const n = s.length, m = t.length;
+  if (n === 0) return m;
+  if (m === 0) return n;
+  const dp: number[] = Array(m + 1).fill(0).map((_, j) => j);
+  for (let i = 1; i <= n; i++) {
+    let prev = dp[0];
+    dp[0] = i;
+    for (let j = 1; j <= m; j++) {
+      const temp = dp[j];
+      const cost = s[i - 1] === t[j - 1] ? 0 : 1;
+      dp[j] = Math.min(dp[j] + 1, dp[j - 1] + 1, prev + cost);
+      prev = temp;
     }
   }
+  return dp[m];
+};
+
+const similarity = (a: string, b: string) => {
+  if (!a && !b) return 1;
+  const lev = levenshtein(a, b);
+  const maxLen = Math.max(a.length, b.length);
+  if (maxLen === 0) return 1;
+  return 1 - lev / maxLen;
+};
+
+const computeLineDiff = (oldText: string, newText: string): LineRow[] => {
+  const A = formatSqlBonito(oldText).split('\n').map(l => l.trimEnd());
+  const B = formatSqlBonito(newText).split('\n').map(l => l.trimEnd());
+  const n = A.length, m = B.length;
+  const thresh = 0.6; // similarity threshold to consider equal-ish
+
+  const dp: number[][] = Array.from({ length: n + 1 }, () => Array(m + 1).fill(0));
+  for (let i = n - 1; i >= 0; i--) {
+    for (let j = m - 1; j >= 0; j--) {
+      if (similarity(A[i], B[j]) >= thresh) dp[i][j] = 1 + dp[i + 1][j + 1];
+      else dp[i][j] = Math.max(dp[i + 1][j], dp[i][j + 1]);
+    }
+  }
+
+  const rows: LineRow[] = [];
+  let i = 0, j = 0;
+  while (i < n && j < m) {
+    if (similarity(A[i], B[j]) >= thresh) {
+      const sim = similarity(A[i], B[j]);
+      rows.push({ left: A[i], right: B[j], status: sim === 1 ? 'UNCHANGED' : 'MODIFIED' });
+      i++; j++;
+    } else if (dp[i + 1][j] >= dp[i][j + 1]) {
+      rows.push({ left: A[i], right: '', status: 'REMOVED' });
+      i++;
+    } else {
+      rows.push({ left: '', right: B[j], status: 'ADDED' });
+      j++;
+    }
+  }
+  while (i < n) { rows.push({ left: A[i++], right: '', status: 'REMOVED' }); }
+  while (j < m) { rows.push({ left: '', right: B[j++], status: 'ADDED' }); }
 
   return rows;
 };
