@@ -4,6 +4,7 @@ import PageHeader from '../components/PageHeader';
 import { useGlobalState } from '../context/GlobalStateContext';
 import { formatSqlBonito } from '../utils/sqlFormatter';
 import { ArrowLeft, ArrowRight, GitCompare } from 'lucide-react';
+import { diffLines, diffWords } from 'diff';
 
 const parseQuery = (search: string) => {
   const params = new URLSearchParams(search);
@@ -38,47 +39,49 @@ const escapeHtml = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;')
 type LineRow = { left: string; right: string; status: 'UNCHANGED' | 'ADDED' | 'REMOVED' | 'MODIFIED' };
 
 const computeLineDiff = (oldText: string, newText: string): LineRow[] => {
-  const a = formatSqlBonito(oldText).split('\n');
-  const b = formatSqlBonito(newText).split('\n');
-  const n = a.length, m = b.length;
-  const dp: number[][] = Array.from({ length: n + 1 }, () => Array(m + 1).fill(0));
-  for (let i = n - 1; i >= 0; i--) {
-    for (let j = m - 1; j >= 0; j--) {
-      if (a[i] === b[j]) dp[i][j] = 1 + dp[i + 1][j + 1];
-      else dp[i][j] = Math.max(dp[i + 1][j], dp[i][j + 1]);
-    }
-  }
-
+  // Use the `diff` library to compute line diffs, then align removed/added blocks
+  const a = formatSqlBonito(oldText);
+  const b = formatSqlBonito(newText);
+  const parts = diffLines(a, b);
   const rows: LineRow[] = [];
-  let i = 0, j = 0;
-  while (i < n && j < m) {
-    if (a[i] === b[j]) {
-      rows.push({ left: a[i], right: b[j], status: 'UNCHANGED' });
-      i++; j++;
-    } else if (dp[i + 1][j] >= dp[i][j + 1]) {
-      rows.push({ left: a[i], right: '', status: 'REMOVED' });
-      i++;
+
+  for (let i = 0; i < parts.length; i++) {
+    const part = parts[i];
+    const lines = part.value.split('\n');
+    // Remove potential trailing empty line from split when value ends with \n
+    if (lines.length > 0 && lines[lines.length - 1] === '') lines.pop();
+
+    if (part.added) {
+      // If previous was removed, we'll pair them; otherwise, mark as added
+      const prev = parts[i - 1];
+      if (prev && prev.removed) {
+        const aLines = prev.value.split('\n');
+        if (aLines.length > 0 && aLines[aLines.length - 1] === '') aLines.pop();
+        const bLines = lines;
+        const max = Math.max(aLines.length, bLines.length);
+        for (let k = 0; k < max; k++) {
+          rows.push({ left: aLines[k] || '', right: bLines[k] || '', status: (aLines[k] && bLines[k]) ? 'MODIFIED' : (aLines[k] ? 'REMOVED' : 'ADDED') });
+        }
+        // skip handling prev here because we've consumed it
+      } else {
+        lines.forEach(l => rows.push({ left: '', right: l, status: 'ADDED' }));
+      }
+    } else if (part.removed) {
+      // If next is added, pairing will happen when next is processed; otherwise mark removed
+      const nxt = parts[i + 1];
+      if (nxt && nxt.added) {
+        // pairing handled in next iteration
+        continue;
+      } else {
+        lines.forEach(l => rows.push({ left: l, right: '', status: 'REMOVED' }));
+      }
     } else {
-      rows.push({ left: '', right: b[j], status: 'ADDED' });
-      j++;
+      // unchanged
+      lines.forEach(l => rows.push({ left: l, right: l, status: 'UNCHANGED' }));
     }
   }
-  while (i < n) { rows.push({ left: a[i++], right: '', status: 'REMOVED' }); }
-  while (j < m) { rows.push({ left: '', right: b[j++], status: 'ADDED' }); }
 
-  // Post-process: if a REMOVED row is immediately followed by an ADDED row, consider as MODIFIED pair
-  const result: LineRow[] = [];
-  for (let k = 0; k < rows.length; k++) {
-    const cur = rows[k];
-    if (cur.status === 'REMOVED' && k + 1 < rows.length && rows[k + 1].status === 'ADDED') {
-      result.push({ left: cur.left, right: rows[k + 1].right, status: 'MODIFIED' });
-      k++; // skip next
-    } else {
-      result.push(cur);
-    }
-  }
-
-  return result;
+  return rows;
 };
 
 const SqlDiffPane: React.FC<{ oldSql: string; newSql: string; showWord?: boolean }> = ({ oldSql, newSql, showWord = true }) => {
