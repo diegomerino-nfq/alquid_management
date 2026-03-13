@@ -35,40 +35,80 @@ const highlightWords = (oldLine: string, newLine: string) => {
 
 const escapeHtml = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 
+type LineRow = { left: string; right: string; status: 'UNCHANGED' | 'ADDED' | 'REMOVED' | 'MODIFIED' };
+
+const computeLineDiff = (oldText: string, newText: string): LineRow[] => {
+  const a = formatSqlBonito(oldText).split('\n');
+  const b = formatSqlBonito(newText).split('\n');
+  const n = a.length, m = b.length;
+  const dp: number[][] = Array.from({ length: n + 1 }, () => Array(m + 1).fill(0));
+  for (let i = n - 1; i >= 0; i--) {
+    for (let j = m - 1; j >= 0; j--) {
+      if (a[i] === b[j]) dp[i][j] = 1 + dp[i + 1][j + 1];
+      else dp[i][j] = Math.max(dp[i + 1][j], dp[i][j + 1]);
+    }
+  }
+
+  const rows: LineRow[] = [];
+  let i = 0, j = 0;
+  while (i < n && j < m) {
+    if (a[i] === b[j]) {
+      rows.push({ left: a[i], right: b[j], status: 'UNCHANGED' });
+      i++; j++;
+    } else if (dp[i + 1][j] >= dp[i][j + 1]) {
+      rows.push({ left: a[i], right: '', status: 'REMOVED' });
+      i++;
+    } else {
+      rows.push({ left: '', right: b[j], status: 'ADDED' });
+      j++;
+    }
+  }
+  while (i < n) { rows.push({ left: a[i++], right: '', status: 'REMOVED' }); }
+  while (j < m) { rows.push({ left: '', right: b[j++], status: 'ADDED' }); }
+
+  // Post-process: if a REMOVED row is immediately followed by an ADDED row, consider as MODIFIED pair
+  const result: LineRow[] = [];
+  for (let k = 0; k < rows.length; k++) {
+    const cur = rows[k];
+    if (cur.status === 'REMOVED' && k + 1 < rows.length && rows[k + 1].status === 'ADDED') {
+      result.push({ left: cur.left, right: rows[k + 1].right, status: 'MODIFIED' });
+      k++; // skip next
+    } else {
+      result.push(cur);
+    }
+  }
+
+  return result;
+};
+
 const SqlDiffPane: React.FC<{ oldSql: string; newSql: string; showWord?: boolean }> = ({ oldSql, newSql, showWord = true }) => {
-  const oldLines = formatSqlBonito(oldSql).split('\n');
-  const newLines = formatSqlBonito(newSql).split('\n');
-  const max = Math.max(oldLines.length, newLines.length);
+  const rows = computeLineDiff(oldSql, newSql);
 
   return (
     <div className="flex-1 flex border rounded overflow-hidden bg-white shadow-sm">
       <div className="w-1/2 border-r">
         <div className="bg-gray-50 px-3 py-2 text-xs font-bold">Versión Anterior</div>
         <div className="p-3 text-xs font-mono overflow-auto h-[60vh]">
-          {Array.from({ length: max }).map((_, i) => {
-            const a = oldLines[i] || '';
-            const b = newLines[i] || '';
-            const isDiff = a.trim() !== b.trim();
-            if (showWord && isDiff) {
-              const html = highlightWords(a, b).left;
-              return <div key={i} className="py-[2px] text-xs" dangerouslySetInnerHTML={{ __html: html || '&nbsp;' }} />;
-            }
-            return <div key={i} className={`py-[2px] ${isDiff ? 'text-red-700 bg-red-50' : 'text-gray-600'}`}>{a || <br />}</div>;
+          {rows.map((r, idx) => {
+            if (r.status === 'UNCHANGED') return <div key={idx} className="py-[2px] text-gray-500">{r.left || <br />}</div>;
+            if (r.status === 'REMOVED') return <div key={idx} className="py-[2px] text-red-700 bg-red-50">{r.left}</div>;
+            if (r.status === 'ADDED') return <div key={idx} className="py-[2px] text-gray-300">&nbsp;</div>;
+            // MODIFIED
+            const html = showWord ? highlightWords(r.left, r.right).left : escapeHtml(r.left);
+            return <div key={idx} className="py-[2px] text-red-700 bg-red-50" dangerouslySetInnerHTML={{ __html: html || '&nbsp;' }} />;
           })}
         </div>
       </div>
       <div className="w-1/2">
         <div className="bg-gray-50 px-3 py-2 text-xs font-bold">Nueva Versión</div>
         <div className="p-3 text-xs font-mono overflow-auto h-[60vh]">
-          {Array.from({ length: max }).map((_, i) => {
-            const a = oldLines[i] || '';
-            const b = newLines[i] || '';
-            const isDiff = a.trim() !== b.trim();
-            if (showWord && isDiff) {
-              const html = highlightWords(a, b).right;
-              return <div key={i} className="py-[2px]" dangerouslySetInnerHTML={{ __html: html || '&nbsp;' }} />;
-            }
-            return <div key={i} className={`py-[2px] ${isDiff ? 'text-green-700 bg-green-50 font-bold' : 'text-gray-600'}`}>{b || <br />}</div>;
+          {rows.map((r, idx) => {
+            if (r.status === 'UNCHANGED') return <div key={idx} className="py-[2px] text-gray-500">{r.right || <br />}</div>;
+            if (r.status === 'ADDED') return <div key={idx} className="py-[2px] text-green-700 bg-green-50">{r.right}</div>;
+            if (r.status === 'REMOVED') return <div key={idx} className="py-[2px] text-gray-300">&nbsp;</div>;
+            // MODIFIED
+            const html = showWord ? highlightWords(r.left, r.right).right : escapeHtml(r.right);
+            return <div key={idx} className="py-[2px] text-green-700 bg-green-50 font-bold" dangerouslySetInnerHTML={{ __html: html || '&nbsp;' }} />;
           })}
         </div>
       </div>
