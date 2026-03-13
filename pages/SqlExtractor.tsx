@@ -141,6 +141,7 @@ const SqlExtractor: React.FC = () => {
       baseDir = null;
     }
 
+    const pendingDownloads: { name: string; content: string }[] = [];
     if (Array.isArray(extractReports.data)) {
         for (const r of extractReports.data) {
             if (!Array.isArray(r.queries)) continue;
@@ -170,32 +171,51 @@ const SqlExtractor: React.FC = () => {
                     }
                   } catch (err) {
                     console.error('FS Write Error:', err);
-                    // fallback to download
-                    const blob = new Blob([content], { type: 'text/sql' });
-                    const url = window.URL.createObjectURL(blob);
-                    const a = document.createElement('a');
-                    a.href = url;
-                    a.download = `${q.filename.replace(/\//g, '_')}.sql`;
-                    document.body.appendChild(a);
-                    a.click();
-                    document.body.removeChild(a);
-                    window.URL.revokeObjectURL(url);
+                    // fallback: add to pending downloads to generate a single combined file later
+                    pendingDownloads.push({ name: q.filename.replace(/\//g, '_') + '.sql', content });
                   }
                 } else {
-                  const blob = new Blob([content], { type: 'text/sql' });
-                  const url = window.URL.createObjectURL(blob);
-                  const a = document.createElement('a');
-                  a.href = url;
-                  a.download = `${q.filename.replace(/\//g, '_')}.sql`;
-                  document.body.appendChild(a);
-                  a.click();
-                  document.body.removeChild(a);
-                  window.URL.revokeObjectURL(url);
+                  // Collect downloads to avoid triggering many anchor clicks (some browsers block them)
+                  pendingDownloads.push({ name: q.filename.replace(/\//g, '_') + '.sql', content });
                 }
 
                 processedCount++;
             }
         }
+    }
+
+    // If we couldn't write to the filesystem, generate a single combined download
+    if (pendingDownloads.length > 0 && !baseDir) {
+      if (pendingDownloads.length === 1) {
+        const d = pendingDownloads[0];
+        const blob = new Blob([d.content], { type: 'text/sql' });
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = d.name;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        window.URL.revokeObjectURL(url);
+      } else {
+        // Combine into a single .sql with clear separators
+        const combined = pendingDownloads.map(d => `-- FILE: ${d.name}\n\n${d.content}\n\n`).join('\n-- ----\n\n');
+        const blob = new Blob([combined], { type: 'text/sql' });
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        const folderSafe = (extractRegion || 'general').toString().toLowerCase().replace(/\s+/g, '_');
+        const envSafe = (extractEnv || 'general').toString().toLowerCase().replace(/\s+/g, '_');
+        const d = new Date();
+        const yy = String(d.getFullYear()).slice(-2);
+        const mm = String(d.getMonth() + 1).padStart(2, '0');
+        const dd = String(d.getDate()).padStart(2, '0');
+        a.download = `Informes_${folderSafe}_${envSafe}_${yy}${mm}${dd}_ALL.sql`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        window.URL.revokeObjectURL(url);
+      }
     }
 
     if (processedCount > 0) {
@@ -470,12 +490,7 @@ const SqlExtractor: React.FC = () => {
                   </select>
                 </div>
 
-                <div>
-                  <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">Carpeta destino</label>
-                  <div className="flex items-center gap-2">
-                    {/* Folder is selected at export time; no persistent selection button */}
-                  </div>
-                </div>
+                {/* Carpeta destino removed (folder chosen at export time) */}
             </div>
          </div>
 
