@@ -168,7 +168,36 @@ const ActivityLog: React.FC = () => {
             <div className="flex items-center gap-2">
               <button onClick={() => setCurrentPage(1)} disabled={currentPage === 1} className="px-2 py-1 bg-white border rounded text-xs">Primera</button>
               <button onClick={() => setCurrentPage(p => Math.max(1, p - 1))} disabled={currentPage === 1} className="px-2 py-1 bg-white border rounded text-xs">Anterior</button>
-              <span className="px-2">{currentPage}/{totalPages}</span>
+
+              {/* Page number buttons (windowed) */}
+              <div className="flex items-center gap-1">
+                {(() => {
+                  const maxButtons = 7;
+                  let start = Math.max(1, currentPage - Math.floor(maxButtons / 2));
+                  let end = Math.min(totalPages, start + maxButtons - 1);
+                  if (end - start + 1 < maxButtons) start = Math.max(1, end - maxButtons + 1);
+                  const pages: number[] = [];
+                  for (let p = start; p <= end; p++) pages.push(p);
+                  return (
+                    <>
+                      {start > 1 && (
+                        <button onClick={() => setCurrentPage(1)} className="px-2 py-1 bg-white border rounded text-xs">1</button>
+                      )}
+                      {start > 2 && <span className="px-1">...</span>}
+                      {pages.map(p => (
+                        <button key={p} onClick={() => setCurrentPage(p)} className={`px-2 py-1 border rounded text-xs ${p === currentPage ? 'bg-alquid-navy text-white' : 'bg-white'}`}>
+                          {p}
+                        </button>
+                      ))}
+                      {end < totalPages - 1 && <span className="px-1">...</span>}
+                      {end < totalPages && (
+                        <button onClick={() => setCurrentPage(totalPages)} className="px-2 py-1 bg-white border rounded text-xs">{totalPages}</button>
+                      )}
+                    </>
+                  );
+                })()}
+              </div>
+
               <button onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))} disabled={currentPage === totalPages} className="px-2 py-1 bg-white border rounded text-xs">Siguiente</button>
               <button onClick={() => setCurrentPage(totalPages)} disabled={currentPage === totalPages} className="px-2 py-1 bg-white border rounded text-xs">Última</button>
             </div>
