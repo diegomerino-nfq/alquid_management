@@ -1,10 +1,24 @@
-import React, { useRef } from 'react';
+import React, { useRef, useState, useMemo } from 'react';
 import { Activity, Terminal, Clock, CheckCircle2, AlertCircle, Info, XCircle, Trash2, FileJson, Database, Download, User } from 'lucide-react';
 import { useGlobalState } from '../context/GlobalStateContext';
 import PageHeader from '../components/PageHeader';
 
 const ActivityLog: React.FC = () => {
   const { userLogs, clearLogs } = useGlobalState();
+  const [pageSize, setPageSize] = useState<number>(20);
+  const [currentPage, setCurrentPage] = useState<number>(1);
+
+  const totalPages = Math.max(1, Math.ceil(userLogs.length / pageSize));
+
+  const visibleLogs = useMemo(() => {
+    const start = (currentPage - 1) * pageSize;
+    return userLogs.slice(start, start + pageSize);
+  }, [userLogs, currentPage, pageSize]);
+
+  // reset page when logs or pageSize change
+  React.useEffect(() => {
+    setCurrentPage(1);
+  }, [pageSize, userLogs.length]);
   const topLogRef = useRef<HTMLTableRowElement>(null);
 
   const getStatusStyle = (type: string) => {
@@ -87,7 +101,7 @@ const ActivityLog: React.FC = () => {
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
-                {userLogs.map((log, index) => (
+                {visibleLogs.map((log, index) => (
                   <tr key={log.id} ref={index === 0 ? topLogRef : null} className="hover:bg-blue-50/50 transition-colors group animate-fade-in">
                     <td className="px-6 py-3.5 whitespace-nowrap align-top">
                       <div className="flex items-center gap-2 text-gray-500 font-mono text-xs">
@@ -135,13 +149,29 @@ const ActivityLog: React.FC = () => {
         </div>
 
         {/* Console Footer */}
-        <div className="bg-gray-50 border-t border-gray-200 px-4 py-2 flex justify-between items-center text-xs text-gray-400">
+        <div className="bg-gray-50 border-t border-gray-200 px-4 py-2 flex flex-col md:flex-row justify-between items-center text-xs text-gray-400 gap-2">
           <div className="flex items-center gap-2">
             <span className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></span>
             <span>Monitor Activo</span>
           </div>
-          <div>
-            Total Eventos: {userLogs.length}
+          <div className="flex items-center gap-4">
+            <div>Mostrando {Math.min(userLogs.length, (currentPage - 1) * pageSize + 1)}-{Math.min(userLogs.length, currentPage * pageSize)} de {userLogs.length}</div>
+
+            <div className="flex items-center gap-2">
+              <label className="text-xs text-gray-500">Eventos por página</label>
+              <select value={pageSize} onChange={(e) => setPageSize(Number(e.target.value))} className="p-1 rounded border text-sm">
+                <option value={20}>20</option>
+                <option value={50}>50</option>
+              </select>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <button onClick={() => setCurrentPage(1)} disabled={currentPage === 1} className="px-2 py-1 bg-white border rounded text-xs">Primera</button>
+              <button onClick={() => setCurrentPage(p => Math.max(1, p - 1))} disabled={currentPage === 1} className="px-2 py-1 bg-white border rounded text-xs">Anterior</button>
+              <span className="px-2">{currentPage}/{totalPages}</span>
+              <button onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))} disabled={currentPage === totalPages} className="px-2 py-1 bg-white border rounded text-xs">Siguiente</button>
+              <button onClick={() => setCurrentPage(totalPages)} disabled={currentPage === totalPages} className="px-2 py-1 bg-white border rounded text-xs">Última</button>
+            </div>
           </div>
         </div>
 
