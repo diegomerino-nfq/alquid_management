@@ -1,5 +1,4 @@
 import React, { useRef, useState, useMemo, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
 import { Archive, Upload, FileJson, Download, ChevronRight, Folder, Database, X, ArrowLeft, GitCompare, ArrowRightLeft, Check, AlertTriangle, Plus, Minus, Calendar, User, Clock, ShieldCheck, XCircle, FileText, Github, Save, Trash2 } from 'lucide-react';
 import PageHeader from '../components/PageHeader';
 import { useGlobalState } from '../context/GlobalStateContext';
@@ -75,9 +74,7 @@ const Repository: React.FC = () => {
         }
     }, [selectedClient, selectedGeography, selectedEnv]);
 
-    // Comparison State
-    const [selectedForCompare, setSelectedForCompare] = useState<string[]>([]);
-    const navigate = useNavigate();
+    // Comparison State removed for MVP
     const [versionComment, setVersionComment] = useState("");
 
     // File Details Modal
@@ -369,124 +366,7 @@ const Repository: React.FC = () => {
         addLog('REPOSITORIO', 'DESCARGA_VERSION', `Versión ${file.version} descargada`, 'INFO');
     };
 
-    const toggleCompareSelection = (fileId: string, e: React.ChangeEvent<HTMLInputElement>) => {
-        e.stopPropagation();
-        setSelectedForCompare(prev => {
-            if (prev.includes(fileId)) return prev.filter(id => id !== fileId);
-            if (prev.length >= 2) return [prev[1], fileId];
-            return [...prev, fileId];
-        });
-    };
-
-    const generateDiff = useMemo(() => {
-        if (selectedForCompare.length !== 2 || !selectedClient || !selectedEnv) return null;
-
-        const geographyKey = selectedGeography || 'null';
-        const files = repositoryData[selectedClient]?.[geographyKey]?.[selectedEnv]?.filter(f => selectedForCompare.includes(f.id)) || [];
-        
-        if (files.length !== 2) return null;
-
-        const sortedFiles = files.sort((a, b) => a.version - b.version);
-        const oldFile = sortedFiles[0];
-        const newFile = sortedFiles[1];
-
-        const oldData: ReportDefinition[] = Array.isArray(oldFile.content) ? oldFile.content : [];
-        const newData: ReportDefinition[] = Array.isArray(newFile.content) ? newFile.content : [];
-
-        const flattenQueries = (data: ReportDefinition[]) => {
-            const map = new Map<string, QueryDefinition>();
-            data.forEach(r => {
-                r.queries.forEach(q => {
-                    map.set(`${r.report}::${q.filename}`, q);
-                });
-            });
-            return map;
-        };
-
-        const oldMap = flattenQueries(oldData);
-        const newMap = flattenQueries(newData);
-        const allKeys = new Set([...oldMap.keys(), ...newMap.keys()]);
-
-        const diffResults: QueryDiff[] = [];
-
-        allKeys.forEach(key => {
-            const oldQ = oldMap.get(key);
-            const newQ = newMap.get(key);
-            const [report, filename] = key.split('::');
-
-            if (!oldQ && newQ) {
-                diffResults.push({ key, report, filename, status: 'ADDED', newQuery: newQ, changes: [] });
-            } else if (oldQ && !newQ) {
-                diffResults.push({ key, report, filename, status: 'REMOVED', oldQuery: oldQ, changes: [] });
-            } else if (oldQ && newQ) {
-                const changes: string[] = [];
-                if (oldQ.database !== newQ.database) changes.push('database');
-                if (oldQ.schema !== newQ.schema) changes.push('schema');
-                if (oldQ.table !== newQ.table) changes.push('table');
-
-                const normOld = formatSqlBonito(oldQ.sql);
-                const normNew = formatSqlBonito(newQ.sql);
-                if (normOld !== normNew) changes.push('sql');
-
-                if (changes.length > 0) {
-                    diffResults.push({ key, report, filename, status: 'MODIFIED', oldQuery: oldQ, newQuery: newQ, changes });
-                } else {
-                    diffResults.push({ key, report, filename, status: 'UNCHANGED', oldQuery: oldQ, newQuery: newQ, changes: [] });
-                }
-            }
-        });
-
-        return {
-            oldVersion: oldFile.version,
-            newVersion: newFile.version,
-            diffs: diffResults.sort((a, b) => {
-                const score = (s: DiffStatus) => s === 'MODIFIED' ? 0 : s === 'ADDED' ? 1 : s === 'REMOVED' ? 2 : 3;
-                return score(a.status) - score(b.status);
-            })
-        };
-
-    }, [selectedForCompare, repositoryData, selectedClient, selectedGeography, selectedEnv]);
-
-    const SqlDiffView = ({ oldSql, newSql }: { oldSql: string, newSql: string }) => {
-        const oldLines = formatSqlBonito(oldSql).split('\n');
-        const newLines = formatSqlBonito(newSql).split('\n');
-        const maxLines = Math.max(oldLines.length, newLines.length);
-
-        return (
-            <div className="flex text-xs font-mono border rounded bg-gray-50 overflow-hidden">
-                <div className="w-1/2 border-r border-gray-200">
-                    <div className="bg-gray-100 px-2 py-1 text-gray-500 font-bold border-b">Versión Anterior</div>
-                    <div className="p-2 overflow-x-auto">
-                        {Array.from({ length: maxLines }).map((_, i) => {
-                            const line = oldLines[i] || "";
-                            const newLine = newLines[i] || "";
-                            const isDiff = line.trim() !== newLine.trim();
-                            return (
-                                <div key={i} className={`${isDiff && line ? 'bg-red-100 text-red-800' : 'text-gray-600'} whitespace-pre`}>
-                                    {line || <br />}
-                                </div>
-                            );
-                        })}
-                    </div>
-                </div>
-                <div className="w-1/2">
-                    <div className="bg-gray-100 px-2 py-1 text-gray-500 font-bold border-b">Nueva Versión</div>
-                    <div className="p-2 overflow-x-auto">
-                        {Array.from({ length: maxLines }).map((_, i) => {
-                            const line = oldLines[i] || "";
-                            const newLine = newLines[i] || "";
-                            const isDiff = line.trim() !== newLine.trim();
-                            return (
-                                <div key={i} className={`${isDiff && newLine ? 'bg-green-100 text-green-800 font-bold' : 'text-gray-600'} whitespace-pre`}>
-                                    {newLine || <br />}
-                                </div>
-                            );
-                        })}
-                    </div>
-                </div>
-            </div>
-        );
-    };
+    // Comparison utilities removed for MVP
 
     return (
         <div className="h-full flex flex-col animate-fade-in relative bg-gray-50/50">
@@ -523,7 +403,6 @@ const Repository: React.FC = () => {
                                 if (selectedEnv) setSelectedEnv(null);
                                 else if (selectedGeography) setSelectedGeography(null);
                                 else if (selectedClient) setSelectedClient(null);
-                                setSelectedForCompare([]);
                             }}
                             disabled={!selectedClient}
                             className={`
@@ -578,28 +457,7 @@ const Repository: React.FC = () => {
                         </nav>
                     </div>
 
-                    {selectedClient && selectedGeography && selectedEnv && (
-                        <button
-                            onClick={() => {
-                                if (selectedForCompare.length === 2 && selectedClient && selectedEnv) {
-                                    const oldId = encodeURIComponent(selectedForCompare[0]);
-                                    const newId = encodeURIComponent(selectedForCompare[1]);
-                                    const geo = selectedGeography ? encodeURIComponent(selectedGeography) : '';
-                                    navigate(`/compare?client=${encodeURIComponent(selectedClient)}&geo=${geo}&env=${encodeURIComponent(selectedEnv)}&old=${oldId}&new=${newId}`);
-                                }
-                            }}
-                            disabled={selectedForCompare.length !== 2}
-                            className={`
-                                flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-bold transition-all shadow-sm
-                                ${selectedForCompare.length === 2
-                                    ? 'bg-alquid-navy text-white hover:bg-opacity-90 hover:-translate-y-0.5'
-                                    : 'bg-white text-gray-400 border border-gray-200 cursor-not-allowed'}
-                            `}
-                        >
-                            <GitCompare size={18} />
-                            Comparar ({selectedForCompare.length})
-                        </button>
-                    )}
+                    {/* Compare button removed for MVP */}
                 </div>
 
                 <div className="flex-1 px-6 pb-6 overflow-y-auto custom-scrollbar">
@@ -896,10 +754,7 @@ const Repository: React.FC = () => {
                                         <table className="w-full text-left border-collapse">
                                             <thead className="bg-gray-50 text-gray-500 text-xs uppercase tracking-wider border-b border-gray-200 sticky top-0 z-10">
                                                 <tr>
-                                                    <th className="px-6 py-4 font-semibold w-12 text-center bg-gray-50">
-                                                        <input type="checkbox" disabled className="rounded border-gray-300" />
-                                                    </th>
-                                                    <th className="px-6 py-4 font-semibold w-24 text-center bg-gray-50">Versión</th>
+                                                                            <th className="px-6 py-4 font-semibold w-24 text-center bg-gray-50">Versión</th>
                                                     <th className="px-6 py-4 font-semibold bg-gray-50">Nombre Archivo</th>
                                                     <th className="px-6 py-4 font-semibold bg-gray-50">Comentario</th>
                                                     <th className="px-6 py-4 font-semibold bg-gray-50">Fecha Carga</th>
@@ -909,7 +764,6 @@ const Repository: React.FC = () => {
                                             </thead>
                                             <tbody className="divide-y divide-gray-100 bg-white">
                                                 {[...repositoryData[selectedClient]![selectedGeography || 'null']![selectedEnv!]].sort((a, b) => b.version - a.version).map((file, idx) => {
-                                                    const isSelected = selectedForCompare.includes(file.id);
                                                     return (
                                                         <tr
                                                             key={file.id}
@@ -917,18 +771,8 @@ const Repository: React.FC = () => {
                                                             className={`
                                                                 group hover:bg-blue-50 cursor-pointer transition-colors
                                                                 ${idx === 0 ? 'bg-blue-50/10' : ''}
-                                                                ${isSelected ? 'bg-blue-100/50' : ''}
                                                             `}
                                                         >
-                                                            <td className="px-6 py-4 text-center">
-                                                                <input
-                                                                    type="checkbox"
-                                                                    checked={isSelected}
-                                                                    onChange={(e) => toggleCompareSelection(file.id, e)}
-                                                                    onClick={(e) => e.stopPropagation()}
-                                                                    className="w-4 h-4 rounded border-gray-300 text-alquid-navy focus:ring-alquid-navy cursor-pointer"
-                                                                />
-                                                            </td>
                                                             <td className="px-6 py-4 text-center">
                                                                 <span className={`
                                                                     px-2.5 py-1 rounded-md text-xs font-mono font-bold
@@ -989,7 +833,7 @@ const Repository: React.FC = () => {
                                                                                     await deleteRepositoryFile(file.id, selectedClient, selectedGeography || null, selectedEnv);
                                                                                     // Forzar limpieza de selección/local UI para reflejar el cambio inmediatamente
                                                                                     setSelectedFile(prev => (prev && prev.id === file.id) ? null : prev);
-                                                                                    setSelectedForCompare(prev => prev.filter(id => id !== file.id));
+                                                                                    // Compare selection cleared (feature removed)
                                                                                     // Asegurar refresco final por si algo no actualizó correctamente
                                                                                     if (selectedClient && selectedEnv) {
                                                                                         await fetchRepositoryFiles(selectedClient, selectedGeography || null, selectedEnv);
