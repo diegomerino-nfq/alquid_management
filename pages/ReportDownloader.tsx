@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useRef, useEffect } from 'react';
-import { Play, Settings, Database, CheckSquare, Square, Filter, CheckCircle2, XCircle, Search, X, AlertTriangle, FileWarning, Download, ShieldAlert } from 'lucide-react';
+import { Play, Settings, Database, CheckSquare, Square, Filter, CheckCircle2, XCircle, Search, X, AlertTriangle, FileWarning, Download, ShieldAlert, FileCode } from 'lucide-react';
 import axios from 'axios';
 import FileInput from '../components/FileInput';
 import PageHeader from '../components/PageHeader';
@@ -9,6 +9,7 @@ import { useGlobalState } from '../context/GlobalStateContext';
 import QueryValidatorModal, { InvalidQuery } from '../components/QueryValidatorModal';
 import JsonValidationModal from '../components/JsonValidationModal';
 import { validateReportJson, findAbsoluteReferences, ValidationResult } from '../utils/jsonValidator';
+import RepositoryExplorerModal from '../components/RepositoryExplorerModal';
 
 const ReportDownloader: React.FC = () => {
   // Use Global State (Downloader Specific)
@@ -584,6 +585,16 @@ const ReportDownloader: React.FC = () => {
     );
   };
 
+  // Estado para el modal de exploración de repositorio
+  const [isRepoExplorerOpen, setIsRepoExplorerOpen] = useState(false);
+  // Acción al seleccionar archivo del repositorio
+  const handleSelectRepoFile = (file: any) => {
+    if (!file) return;
+    setDownloadReports(file.content, file.fileName);
+    setIsRepoExplorerOpen(false);
+    addLog('DOWNLOADER', 'CARGA_ARCHIVO', `JSON cargado desde repositorio: ${file.fileName}`, 'SUCCESS');
+  };
+
   return (
     <div className="h-full flex flex-col animate-fade-in w-full relative" >
       <PageHeader
@@ -801,6 +812,12 @@ const ReportDownloader: React.FC = () => {
         )
       }
 
+      <RepositoryExplorerModal
+        isOpen={isRepoExplorerOpen}
+        onClose={() => setIsRepoExplorerOpen(false)}
+        onSelect={handleSelectRepoFile}
+      />
+
       <div className="flex flex-1 gap-6 h-full relative overflow-hidden mt-6">
 
         {/* Fixed Sidebar Configuration */}
@@ -814,14 +831,35 @@ const ReportDownloader: React.FC = () => {
               <h4 className="text-sm font-bold text-gray-800 mb-3 flex items-center gap-2">
                 <Database size={16} /> Archivos de Configuración
               </h4>
-              <FileInput
-                label="Queries (JSON)"
-                accept=".json"
-                onFileLoaded={handleQueriesLoaded}
-                onRemove={handleRemoveQueries}
-                initialFileName={downloadReports.fileName}
-                required
-              />
+              <div className="flex flex-col gap-3 mb-4">
+                <button
+                  onClick={() => document.getElementById('download-json-file-input')?.click()
+                  }
+                  className="w-full py-3 bg-alquid-navy hover:bg-blue-900 text-white rounded-xl font-bold flex items-center justify-center gap-2 shadow-sm whitespace-nowrap transition-transform hover:-translate-y-0.5"
+                >
+                  <Download size={18} /> Cargar desde local
+                </button>
+                <button
+                  onClick={() => setIsRepoExplorerOpen(true)}
+                  className="w-full py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold flex items-center justify-center gap-2 shadow-sm whitespace-nowrap transition-transform hover:-translate-y-0.5"
+                >
+                  <FileCode size={18} /> Cargar desde repositorio
+                </button>
+                <input
+                  id="download-json-file-input"
+                  type="file"
+                  accept=".json"
+                  className="hidden"
+                  onChange={e => {
+                    const file = e.target.files?.[0];
+                    if (!file) return;
+                    const reader = new FileReader();
+                    reader.onload = (event) => handleQueriesLoaded(event.target?.result as string, file.name);
+                    reader.readAsText(file);
+                    e.target.value = '';
+                  }}
+                />
+              </div>
               <FileInput
                 label="Accesos (JSON)"
                 accept=".json"
@@ -880,8 +918,8 @@ const ReportDownloader: React.FC = () => {
                   type="text"
                   value={downloadLoadId}
                   onChange={(e) => setDownloadLoadId(e.target.value)}
-                  placeholder="Seleccionar Load ID"
-                  className="w-full bg-white text-gray-900 border border-gray-300 rounded-lg py-3 px-4 leading-tight focus:outline-none focus:ring-2 focus:ring-alquid-navy focus:border-transparent font-mono shadow-sm placeholder-gray-400"
+                  placeholder="Introducir Load ID"
+                  className="w-full bg-white text-gray-900 border border-gray-300 rounded-lg py-3 px-4 leading-tight focus:outline-none focus:ring-2 focus:ring-alquid-navy focus:border-transparent font-medium shadow-sm placeholder-gray-400"
                 />
               </div>
             </div>

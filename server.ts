@@ -559,10 +559,62 @@ async function startServer() {
     }
   });
 
+  // --- RAG (Retrieval-Augmented Generation) Endpoints ---
+
+  app.get('/api/rag/status', async (_req, res) => {
+    try {
+      const { ragStatus } = await import('./rag.js');
+      res.json({ ...ragStatus(), hasApiKey: !!process.env.GOOGLE_GEMINI_API_KEY });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  // Index all repository files — may take seconds to minutes depending on repo size
+  app.post('/api/rag/index', async (_req, res) => {
+    if (!process.env.GOOGLE_GEMINI_API_KEY) {
+      res.status(400).json({ error: 'GOOGLE_GEMINI_API_KEY no está configurada en .env' });
+      return;
+    }
+    try {
+      const { indexRepositoryFiles } = await import('./rag.js');
+      const result = await indexRepositoryFiles();
+      queries.addLog.run('Sistema', 'RAG', 'INDEX', `Indexadas ${result.indexed} queries, ${result.errors} errores`, 'INFO');
+      res.json(result);
+    } catch (e: any) {
+      console.error('[RAG] Index error:', e.message);
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  // Answer a question using RAG over the indexed repository
+  app.post('/api/rag/query', async (req, res) => {
+    if (!process.env.GOOGLE_GEMINI_API_KEY) {
+      res.status(400).json({ error: 'GOOGLE_GEMINI_API_KEY no está configurada en .env' });
+      return;
+    }
+    const { question } = req.body as { question?: string };
+    if (!question?.trim()) {
+      res.status(400).json({ error: 'El campo "question" es obligatorio.' });
+      return;
+    }
+    try {
+      const { ragQuery } = await import('./rag.js');
+      const result = await ragQuery(question.trim());
+      res.json(result);
+    } catch (e: any) {
+      console.error('[RAG] Query error:', e.message);
+      res.status(500).json({ error: e.message });
+    }
+  });
+
   // --- Vite Middleware (Must be last) ---
   if (process.env.NODE_ENV !== 'production') {
     const vite = await createViteServer({
-      server: { middlewareMode: true },
+      server: {
+        middlewareMode: true,
+        hmr: { port: 24679 },
+      },
       appType: 'spa',
     });
     app.use(vite.middlewares);

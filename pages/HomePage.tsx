@@ -9,9 +9,10 @@ import {
    LayoutGrid,
    BookOpen,
    Zap,
-   ArrowRight
+   Cpu
 } from 'lucide-react';
 import { useGlobalState } from '../context/GlobalStateContext';
+import RagChat from '../components/RagChat';
 
 const HomePage: React.FC = () => {
    const navigate = useNavigate();
@@ -136,6 +137,18 @@ const HomePage: React.FC = () => {
                   </div>
                ))}
             </div>
+         </div>
+
+         {/* AI Assistant Section */}
+         <div>
+            <div className="flex items-center justify-between mb-8 px-2">
+               <h2 className="text-2xl font-black text-alquid-navy flex items-center gap-3">
+                  <Cpu size={24} className="text-alquid-blue" />
+                  Asistente de Queries
+               </h2>
+               <span className="text-xs font-bold text-gray-400 uppercase tracking-widest">RAG · Gemini 1.5 Flash · text-embedding-004</span>
+            </div>
+            <RagChat />
          </div>
 
       </div>

@@ -4,6 +4,11 @@
 *.sqlite3
 alquid.db
 
+# Environment variables (API keys — never commit these)
+.env
+.env.*
+!.env.example
+
 # Logs
 logs
 *.log
