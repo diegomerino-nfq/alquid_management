@@ -203,17 +203,14 @@ type ChatTurn = { role: 'user' | 'model'; parts: [{ text: string }] };
 
 /**
  * Llama a Gemini con fallback automático de modelos.
- * - Gemini (no Gemma): usa startChat() con historial de turnos reales → el modelo
- *   distingue correctamente "conversación previa" de "contexto actual SQL" y la
- *   systemInstruction permanece autoritativa frente al historial.
- * - Gemma: no soporta systemInstruction ni startChat → texto plano concatenado.
- * - Si un modelo tiene cuota agotada (429 / limit:0) pasa al siguiente.
+ * Cada llamada es completamente autocontenida — sin historial de chat en el LLM.
+ * La "memoria" conversacional se gestiona a nivel de SELECT en SQLite (geo/env filter),
+ * de modo que el contexto SQL siempre es fresco y sin contaminación de turnos anteriores.
  */
 async function generateWithFallback(
   genAI: any,
   currentMessage: string,
   systemPrompt: string,
-  chatHistory: ChatTurn[] = [],
 ): Promise<string> {
   let lastError: Error | null = null;
   for (const modelName of CHAT_MODEL_FALLBACK) {
@@ -226,25 +223,13 @@ async function generateWithFallback(
       if (!isGemma) modelConfig.systemInstruction = systemPrompt;
 
       const model = genAI.getGenerativeModel(modelConfig);
-
-      if (!isGemma && chatHistory.length > 0) {
-        // Gemini con historial: usar startChat — los turnos previos son user/model reales,
-        // el contexto SQL se incluye solo en el mensaje actual (no se repite en historia).
-        const chat = model.startChat({ history: chatHistory });
-        const result = await withRetry(() => chat.sendMessage(currentMessage)) as any;
-        console.log(`[RAG] Chat respondido con modelo: ${modelName} (${chatHistory.length / 2 | 0} turnos previos)`);
-        return result.response.text() ?? 'Sin respuesta.';
-      } else {
-        // Sin historial o Gemma: generateContent directo
-        const fullPrompt = isGemma ? `${systemPrompt}\n\n---\n\n${currentMessage}` : currentMessage;
-        const result = await withRetry(() => model.generateContent(fullPrompt)) as any;
-        console.log(`[RAG] Chat respondido con modelo: ${modelName}`);
-        return result.response.text() ?? 'Sin respuesta.';
-      }
+      const fullPrompt = isGemma ? `${systemPrompt}\n\n---\n\n${currentMessage}` : currentMessage;
+      const result = await withRetry(() => model.generateContent(fullPrompt)) as any;
+      console.log(`[RAG] Respondido con modelo: ${modelName}`);
+      return result.response.text() ?? 'Sin respuesta.';
     } catch (e: any) {
       const msg = typeof e?.message === 'string' ? e.message : '';
       lastError = e;
-      // Pasar al siguiente modelo si: cuota agotada, rate limit, o modelo no disponible
       if (msg.includes('limit: 0') || msg.includes('429') || msg.includes('400')) {
         console.warn(`[RAG] Modelo ${modelName} no disponible (${msg.slice(0, 80)}), probando siguiente…`);
         continue;
@@ -467,25 +452,19 @@ INSTRUCCIONES DE RESPUESTA:
 - Si hay información incompleta o ausente en el contexto, indícalo claramente.
 - Sé técnico y preciso. Cita los nombres de tablas, bases de datos y parámetros tal como aparecen en el contexto.`;
 
-  // Construir historial de turnos reales (user/model alternados) para startChat.
-  // Los turnos históricos llevan solo el texto de pregunta/respuesta — SIN el contexto SQL
-  // de aquel momento, que ya no es relevante. De esta forma el historial no puede
-  // contener menciones a geografías anteriores que contaminen la respuesta actual.
-  const chatHistory: ChatTurn[] = [];
-  for (const m of history.slice(-8)) {
-    const role = m.role === 'user' ? 'user' : m.role === 'assistant' ? 'model' : null;
-    if (!role) continue;
-    // Gemini exige turnos user/model estrictamente alternados
-    if (chatHistory.length > 0 && chatHistory[chatHistory.length - 1].role === role) continue;
-    const maxLen = role === 'model' ? 800 : 600;
-    chatHistory.push({ role, parts: [{ text: m.content.slice(0, maxLen) }] });
-  }
+  // Construir el mensaje actual con el contexto SQL fresco.
+  // Nunca se incluye historial previo en la llamada al LLM:
+  // - El filtro SQL (geography/env) garantiza que solo llegan chunks de la geografía activa.
+  // - El embedding enriquecido ya orienta el coseno hacia el tema correcto.
+  // - No hay riesgo de contaminación por respuestas previas de otras geografías.
+  const geoHeader = filters.geography
+    ? `Sesión activa → Geografía: ${filters.geography}${filters.env ? ` | Entorno: ${filters.env}` : ''}\n\n`
+    : '';
 
-  // El mensaje actual lleva el contexto SQL fresco — solo para la pregunta de ahora.
   const currentMessage =
-    `Contexto del repositorio de queries SQL (geografía activa: ${filters.geography ?? 'todas'}):\n\n${context}\n\n---\n\nPregunta del usuario: ${question}`;
+    `${geoHeader}Contexto del repositorio SQL filtrado por geografía activa:\n\n${context}\n\n---\n\nPregunta: ${question}`;
 
-  const answer = await generateWithFallback(genAI, currentMessage, systemPrompt, chatHistory);
+  const answer = await generateWithFallback(genAI, currentMessage, systemPrompt);
 
   const sources: RagChunkSource[] = scored.map(s => ({
     client    : s.client,
