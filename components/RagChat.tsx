@@ -1,38 +1,134 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import {
   Bot, Send, RefreshCw, ChevronDown, ChevronUp,
-  Loader2, Cpu, Database, AlertCircle, CheckCircle2, Info
+  Loader2, Cpu, Database, AlertCircle, CheckCircle2, Info, Trash2
 } from 'lucide-react';
+import { useGlobalState, RagMessage as Message, RagSource as Source, RagStatusData } from '../context/GlobalStateContext';
 
-// ─── Types ────────────────────────────────────────────────────────────────────
+// ─── Lightweight Markdown renderer ────────────────────────────────────────────
+// Handles: **bold**, `code`, ```code blocks```, # headers, - / * lists, numbered lists
+const MarkdownContent: React.FC<{ text: string }> = ({ text }) => {
+  const lines = text.split('\n');
+  const elements: React.ReactNode[] = [];
+  let i = 0;
 
-interface Source {
-  client    : string;
-  geography : string | null;
-  env       : string;
-  reportName: string;
-  filename  : string;
-  score     : number;
+  const renderInline = (str: string): React.ReactNode[] => {
+    const parts: React.ReactNode[] = [];
+    const re = /(`[^`]+`|\*\*[^*]+\*\*|\*[^*]+\*)/g;
+    let last = 0, m: RegExpExecArray | null;
+    let key = 0;
+    while ((m = re.exec(str)) !== null) {
+      if (m.index > last) parts.push(str.slice(last, m.index));
+      const tok = m[0];
+      if (tok.startsWith('`')) parts.push(<code key={key++} className="bg-gray-100 text-alquid-blue font-mono text-[11px] px-1.5 py-0.5 rounded">{tok.slice(1, -1)}</code>);
+      else if (tok.startsWith('**')) parts.push(<strong key={key++}>{tok.slice(2, -2)}</strong>);
+      else if (tok.startsWith('*')) parts.push(<em key={key++}>{tok.slice(1, -1)}</em>);
+      last = m.index + tok.length;
+    }
+    if (last < str.length) parts.push(str.slice(last));
+    return parts;
+  };
+
+  while (i < lines.length) {
+    const line = lines[i];
+    // Fenced code block
+    if (line.trimStart().startsWith('```')) {
+      const lang = line.trim().slice(3).trim();
+      const codeLines: string[] = [];
+      i++;
+      while (i < lines.length && !lines[i].trimStart().startsWith('```')) {
+        codeLines.push(lines[i]);
+        i++;
+      }
+      elements.push(
+        <div key={i} className="my-2 rounded-xl overflow-hidden border border-gray-200">
+          {lang && <div className="bg-gray-100 text-gray-400 text-[10px] font-mono px-3 py-1 border-b border-gray-200">{lang}</div>}
+          <pre className="bg-gray-950 text-gray-100 text-xs font-mono p-3 overflow-x-auto leading-relaxed whitespace-pre">{codeLines.join('\n')}</pre>
+        </div>
+      );
+      i++;
+      continue;
+    }
+    // Headings
+    const headingMatch = line.match(/^(#{1,3})\s+(.+)/);
+    if (headingMatch) {
+      const level = headingMatch[1].length;
+      const cls = level === 1 ? 'text-base font-black text-alquid-navy mt-3 mb-1' : level === 2 ? 'text-sm font-bold text-alquid-navy mt-2 mb-1' : 'text-sm font-semibold text-gray-700 mt-1';
+      elements.push(<div key={i} className={cls}>{renderInline(headingMatch[2])}</div>);
+      i++; continue;
+    }
+    // Unordered list item
+    const ulMatch = line.match(/^(\s*)[*\-]\s+(.+)/);
+    if (ulMatch) {
+      elements.push(
+        <div key={i} className="flex items-start gap-2 text-sm leading-relaxed">
+          <span className="mt-1.5 w-1.5 h-1.5 rounded-full bg-alquid-blue flex-shrink-0"></span>
+          <span>{renderInline(ulMatch[2])}</span>
+        </div>
+      );
+      i++; continue;
+    }
+    // Ordered list item
+    const olMatch = line.match(/^(\s*)\d+\.\s+(.+)/);
+    if (olMatch) {
+      const num = line.match(/^(\s*)(\d+)\./)?.[2] ?? '1';
+      elements.push(
+        <div key={i} className="flex items-start gap-2 text-sm leading-relaxed">
+          <span className="flex-shrink-0 w-5 h-5 rounded-full bg-alquid-blue/10 text-alquid-blue text-[10px] font-bold flex items-center justify-center mt-0.5">{num}</span>
+          <span>{renderInline(olMatch[2])}</span>
+        </div>
+      );
+      i++; continue;
+    }
+    // Horizontal rule
+    if (/^---+$/.test(line.trim())) {
+      elements.push(<hr key={i} className="my-2 border-gray-200" />);
+      i++; continue;
+    }
+    // Empty line
+    if (line.trim() === '') {
+      elements.push(<div key={i} className="h-1" />);
+      i++; continue;
+    }
+    // Normal paragraph
+    elements.push(<p key={i} className="text-sm leading-relaxed">{renderInline(line)}</p>);
+    i++;
+  }
+  return <div className="space-y-1">{elements}</div>;
+};
+
+// ─── Geo/env detector (mirrors rag.ts logic, runs on frontend) ────────────────
+const GEO_MAP: Record<string, string> = {
+  colombia: 'Colombia', argentina: 'Argentina', peru: 'Perú', perú: 'Perú',
+  suiza: 'Suiza', switzerland: 'Suiza', mexico: 'México', méxico: 'México',
+  brasil: 'Brasil', brazil: 'Brasil', chile: 'Chile', turquia: 'Turquía',
+  turquía: 'Turquía', turkey: 'Turquía',
+};
+function detectGeo(text: string): string | null {
+  const q = text.toLowerCase();
+  for (const [kw, canonical] of Object.entries(GEO_MAP)) {
+    if (q.includes(kw)) return canonical;
+  }
+  return null;
 }
-
-interface Message {
-  role   : 'user' | 'assistant' | 'system';
-  content: string;
-  sources?: Source[];
-  isError?: boolean;
+function detectEnv(text: string): 'PRO' | 'PRE' | null {
+  const q = text.toLowerCase();
+  if (/\bpro\b/.test(q)) return 'PRO';
+  if (/\bpre\b/.test(q)) return 'PRE';
+  return null;
 }
-
-interface RagStatusData {
-  chunksCount  : number;
-  lastIndexedAt: string | null;
-  hasApiKey    : boolean;
+function detectClient(text: string): string | null {
+  return text.toLowerCase().includes('bbva') ? 'BBVA' : null;
 }
 
 // ─── Component ────────────────────────────────────────────────────────────────
 
 const RagChat: React.FC = () => {
-  const [status,         setStatus        ] = useState<RagStatusData>({ chunksCount: 0, lastIndexedAt: null, hasApiKey: false });
-  const [messages,       setMessages      ] = useState<Message[]>([]);
+  const {
+    ragMessages: messages, setRagMessages: setMessages,
+    ragStatus: status, setRagStatus: setStatus,
+    ragActiveFilters, setRagActiveFilters,
+  } = useGlobalState();
   const [input,          setInput         ] = useState('');
   const [loading,        setLoading       ] = useState(false);
   const [indexing,       setIndexing      ] = useState(false);
@@ -91,10 +187,26 @@ const RagChat: React.FC = () => {
       const data = await safeJson(r);
       await fetchStatus();
       if (r.ok) {
-        setMessages(prev => [...prev, {
-          role   : 'system',
-          content: `Indexado completado: ${data.indexed ?? '?'} queries procesadas${(data.errors ?? 0) > 0 ? `, ${data.errors} con errores` : ''}.`,
-        }]);
+        if (data.quotaExhausted) {
+          const pendingLeft = (data.errors ?? 0);
+          setMessages(prev => [...prev, {
+            role   : 'system',
+            content: `⚠️ Cuota diaria de embeddings agotada (límite: 1000/día en capa gratuita).\n\n` +
+                     `✅ Ya indexados: ${data.skipped ?? 0} chunks\n` +
+                     `🕐 Pendientes hoy: ${pendingLeft} (se indexarán automáticamente mañana al pulsar el botón)\n\n` +
+                     `El chat ya funciona con los ${data.skipped ?? 0} chunks disponibles.`,
+            isError: false,
+          }]);
+        } else {
+          const parts: string[] = [];
+          if ((data.indexed ?? 0) > 0) parts.push(`✅ ${data.indexed} queries nuevas indexadas`);
+          if ((data.skipped ?? 0) > 0) parts.push(`⏭️ ${data.skipped} ya estaban indexadas`);
+          if ((data.errors ?? 0) > 0) parts.push(`⚠️ ${data.errors} con errores`);
+          setMessages(prev => [...prev, {
+            role   : 'system',
+            content: parts.length > 0 ? parts.join(' · ') : 'Indexado completado.',
+          }]);
+        }
       } else {
         setMessages(prev => [...prev, {
           role   : 'system',
@@ -120,14 +232,27 @@ const RagChat: React.FC = () => {
 
     setInput('');
     if (textareaRef.current) { textareaRef.current.style.height = 'auto'; }
+
+    // Detect geography/env/client mentioned in this question.
+    // If the question doesn't mention them, inherit from the active session filters.
+    // This makes follow-up questions like "y ese informe?" keep Suiza as active geography.
+    const effectiveFilters = {
+      geography: detectGeo(question)   ?? ragActiveFilters.geography,
+      env:       detectEnv(question)   ?? ragActiveFilters.env,
+      client:    detectClient(question) ?? ragActiveFilters.client,
+    };
+    // Persist the resolved filters so the next question inherits them too
+    setRagActiveFilters(effectiveFilters);
+
     setMessages(prev => [...prev, { role: 'user', content: question }]);
     setLoading(true);
 
     try {
+      const history = messages.slice(-8).map(m => ({ role: m.role, content: m.content }));
       const r = await fetch('/api/rag/query', {
         method : 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body   : JSON.stringify({ question }),
+        body   : JSON.stringify({ question, filters: effectiveFilters, history }),
       });
       const data = await safeJson(r);
       if (!r.ok) throw new Error(data.error ?? 'Error del servidor');
@@ -146,6 +271,11 @@ const RagChat: React.FC = () => {
 
     setLoading(false);
     setTimeout(() => textareaRef.current?.focus(), 100);
+  };
+
+  const handleClear = () => {
+    setMessages([]);
+    setRagActiveFilters({ geography: null, env: null, client: null });
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -173,7 +303,7 @@ const RagChat: React.FC = () => {
 
   // ─────────────────────────────────────────────────────────────────────────
   return (
-    <div className="flex flex-col h-[620px] bg-white rounded-3xl border border-gray-100 shadow-premium overflow-hidden">
+    <div className="flex flex-col h-[680px] bg-white rounded-3xl border border-gray-100 shadow-premium overflow-hidden">
 
       {/* ── Header ─────────────────────────────────────────────────────────── */}
       <div className="bg-alquid-navy px-6 py-4 flex items-center justify-between flex-shrink-0">
@@ -187,22 +317,39 @@ const RagChat: React.FC = () => {
               {!status.hasApiKey
                 ? <span className="text-amber-400">GOOGLE_GEMINI_API_KEY no configurada</span>
                 : status.chunksCount > 0
-                  ? `${status.chunksCount} queries indexadas${status.lastIndexedAt ? ' · ' + formatDate(status.lastIndexedAt) : ''}`
+                  ? <>
+                      {`${status.chunksCount} queries indexadas`}
+                      {ragActiveFilters.geography &&
+                        <span className="ml-1 text-alquid-blue font-semibold">
+                          {' · '}{ragActiveFilters.geography}{ragActiveFilters.env ? ' / ' + ragActiveFilters.env : ''}
+                        </span>
+                      }
+                    </>
                   : 'Sin indexar — pulsa el botón para comenzar'}
             </p>
           </div>
         </div>
 
-        <button
-          onClick={handleIndex}
-          disabled={indexing}
-          title="Genera embeddings de todas las queries del repositorio"
-          className="flex items-center gap-2 px-4 py-2 bg-white/10 hover:bg-white/20 border border-white/20 text-white text-xs font-bold rounded-xl transition-all disabled:opacity-50 disabled:cursor-not-allowed"
-        >
-          {indexing
-            ? <><Loader2 size={13} className="animate-spin" /> Indexando…</>
-            : <><RefreshCw size={13} /> Indexar Repositorio</>}
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={handleClear}
+            disabled={messages.length === 0}
+            title="Limpiar conversación y reiniciar contexto de geografía"
+            className="flex items-center gap-1.5 px-3 py-2 bg-white/5 hover:bg-red-500/20 border border-white/10 hover:border-red-400/30 text-gray-400 hover:text-red-300 text-xs font-medium rounded-xl transition-all disabled:opacity-30 disabled:cursor-not-allowed"
+          >
+            <Trash2 size={12} /> Limpiar
+          </button>
+          <button
+            onClick={handleIndex}
+            disabled={indexing}
+            title="Genera embeddings de todas las queries del repositorio"
+            className="flex items-center gap-2 px-4 py-2 bg-white/10 hover:bg-white/20 border border-white/20 text-white text-xs font-bold rounded-xl transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {indexing
+              ? <><Loader2 size={13} className="animate-spin" /> Indexando…</>
+              : <><RefreshCw size={13} /> Indexar Repositorio</>}
+          </button>
+        </div>
       </div>
 
       {/* ── Messages area ──────────────────────────────────────────────────── */}
@@ -250,8 +397,8 @@ const RagChat: React.FC = () => {
                   <div className="w-7 h-7 bg-alquid-blue rounded-lg flex items-center justify-center flex-shrink-0 mt-0.5">
                     <Bot size={14} className="text-white" />
                   </div>
-                  <div className="flex-1 bg-white border border-gray-200 rounded-2xl rounded-tl-sm px-4 py-3 text-sm text-gray-800 leading-relaxed shadow-sm whitespace-pre-wrap">
-                    {msg.content}
+                  <div className="flex-1 bg-white border border-gray-200 rounded-2xl rounded-tl-sm px-4 py-3 text-gray-800 shadow-sm">
+                    <MarkdownContent text={msg.content} />
                   </div>
                 </div>
 

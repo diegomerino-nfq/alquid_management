@@ -5,7 +5,7 @@
  *   GOOGLE_GEMINI_API_KEY=AIza...   (obtenida en https://aistudio.google.com/apikey)
  *
  * Modelos usados:
- *   Embeddings : text-embedding-004  (768 dims, gratuito con cuota generosa)
+ *   Embeddings : embedding-001       (768 dims, soportado en v1beta)
  *   Chat       : gemini-1.5-flash    (rápido, económico, con capa gratuita)
  */
 
@@ -39,6 +39,60 @@ const stmtAllChunks    = db.prepare('SELECT id, client, geography, env, report_n
 const stmtCount        = db.prepare('SELECT COUNT(*) as count FROM rag_chunks');
 const stmtLastIndexed  = db.prepare('SELECT MAX(indexed_at) as last FROM rag_chunks');
 const stmtAllRepoFiles = db.prepare('SELECT * FROM repository_files');
+const stmtExistingIds  = db.prepare('SELECT id FROM rag_chunks');
+
+// Prepared statements para filtrado por metadatos (se generan dinámicamente abajo)
+// ─── Metadata extractor ───────────────────────────────────────────────────────
+
+/**
+ * Extrae filtros de metadatos (geography, env, client) de la pregunta.
+ * Devuelve null en cada campo si no se detecta mención.
+ */
+function extractMetadataFilters(question: string): {
+  geography: string | null;
+  env      : 'PRO' | 'PRE' | null;
+  client   : string | null;
+} {
+  const q = question.toLowerCase();
+
+  // Entorno
+  let env: 'PRO' | 'PRE' | null = null;
+  if (/\bpro\b/.test(q))        env = 'PRO';
+  else if (/\bpre\b/.test(q))   env = 'PRE';
+
+  // Geografías conocidas (añadir aquí nuevas cuando el repo crezca)
+  const GEO_MAP: Record<string, string> = {
+    colombia : 'Colombia',
+    argentina: 'Argentina',
+    peru     : 'Perú',
+    perú     : 'Perú',
+    suiza    : 'Suiza',
+    switzerland: 'Suiza',
+    mexico   : 'México',
+    méxico   : 'México',
+    brasil   : 'Brasil',
+    brazil   : 'Brasil',
+    chile    : 'Chile',
+    turquia  : 'Turquía',
+    turquía  : 'Turquía',
+    turkey   : 'Turquía',
+  };
+  let geography: string | null = null;
+  for (const [keyword, canonical] of Object.entries(GEO_MAP)) {
+    if (q.includes(keyword)) { geography = canonical; break; }
+  }
+
+  // Clientes conocidos
+  const CLIENT_MAP: Record<string, string> = {
+    bbva: 'BBVA',
+  };
+  let client: string | null = null;
+  for (const [keyword, canonical] of Object.entries(CLIENT_MAP)) {
+    if (q.includes(keyword)) { client = canonical; break; }
+  }
+
+  return { geography, env, client };
+}
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -73,15 +127,114 @@ function queryToText(
   if (query.parameters && Object.keys(query.parameters).length > 0) {
     parts.push(`Parámetros: ${Object.keys(query.parameters).join(', ')}`);
   }
-  parts.push(`SQL:\n${query.sql}`);
+  // Truncar SQL a 1500 chars para no superar el límite de tokens del embedding
+  const sqlTruncated = query.sql.length > 1500 ? query.sql.slice(0, 1500) + '...[truncado]' : query.sql;
+  parts.push(`SQL:\n${sqlTruncated}`);
   return parts.join('\n');
 }
 
-/** Genera el embedding para un texto usando text-embedding-004. */
-async function embed(genAI: any, text: string): Promise<number[]> {
-  const model = genAI.getGenerativeModel({ model: 'text-embedding-004' });
-  const result = await model.embedContent(text);
-  return result.embedding.values as number[];
+/**
+ * Reintenta una operación async al recibir error 429 (rate-limit), con backoff.
+ * Si el error es quota=0 (límite diario agotado) lanza directamente sin reintentar.
+ */
+async function withRetry<T>(fn: () => Promise<T>, maxRetries = 3): Promise<T> {
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      return await fn();
+    } catch (e: any) {
+      const msg = typeof e?.message === 'string' ? e.message : '';
+      const is429       = msg.includes('429');
+      // Cuota diaria agotada: no tiene sentido reintentar hasta mañana
+      const isDailyLimit = msg.includes('PerDay') || msg.includes('limit: 0');
+      if (is429 && !isDailyLimit && attempt < maxRetries) {
+        const retryMatch = msg.match(/retry in (\d+(?:\.\d+)?)s/i);
+        const waitMs = retryMatch ? Math.ceil(parseFloat(retryMatch[1])) * 1000 + 2000 : (2 ** (attempt + 2)) * 5000;
+        console.warn(`[RAG] 429 rate-limit — esperando ${waitMs / 1000}s (intento ${attempt + 1}/${maxRetries})…`);
+        await new Promise(r => setTimeout(r, waitMs));
+        continue;
+      }
+      throw e;
+    }
+  }
+  throw new Error('Max retries exceeded');
+}
+
+/** Tamaño de lote para batchEmbedContents (máx recomendado: 100, usamos 10 por seguridad). */
+const EMBED_BATCH_SIZE = 10;
+
+/**
+ * Genera embeddings para un lote de textos en una sola llamada HTTP.
+ * Usa la API REST directamente (batchEmbedContents) porque el SDK JS
+ * no expone este endpoint de forma conveniente.
+ */
+async function embedBatch(apiKey: string, texts: string[]): Promise<number[][]> {
+  return withRetry(async () => {
+    const url  = `https://generativelanguage.googleapis.com/v1beta/models/gemini-embedding-001:batchEmbedContents?key=${apiKey}`;
+    const body = {
+      requests: texts.map(text => ({
+        model  : 'models/gemini-embedding-001',
+        content: { parts: [{ text }] },
+      })),
+    };
+    const res = await fetch(url, {
+      method : 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body   : JSON.stringify(body),
+    });
+    if (!res.ok) {
+      const errText = await res.text();
+      throw new Error(`[${res.status} ${res.statusText}] ${errText}`);
+    }
+    const data = await res.json() as { embeddings: Array<{ values: number[] }> };
+    return data.embeddings.map(e => e.values);
+  });
+}
+
+/** Modelos de chat a intentar en orden cuando los anteriores tienen quota=0. */
+const CHAT_MODEL_FALLBACK = [
+  'gemini-2.0-flash-lite',
+  'gemini-2.0-flash',
+  'gemma-3-27b-it',
+  'gemma-3-12b-it',
+  'gemma-3-4b-it',
+];
+
+/**
+ * Llama a generateContent con fallback automático de modelos.
+ * - Gemini: usa systemInstruction nativo.
+ * - Gemma: no soporta systemInstruction → se inyecta en el texto del prompt.
+ * - Si un modelo tiene cuota agotada (429 / limit:0) pasa al siguiente.
+ */
+async function generateWithFallback(genAI: any, prompt: string, systemPrompt: string): Promise<string> {
+  let lastError: Error | null = null;
+  for (const modelName of CHAT_MODEL_FALLBACK) {
+    const isGemma = modelName.startsWith('gemma');
+    try {
+      const modelConfig: Record<string, any> = {
+        model           : modelName,
+        generationConfig: { temperature: 0.3, maxOutputTokens: 2048 },
+      };
+      if (!isGemma) modelConfig.systemInstruction = systemPrompt;
+
+      const model = genAI.getGenerativeModel(modelConfig);
+      // Para Gemma, el system prompt va embebido en el mensaje
+      const fullPrompt = isGemma ? `${systemPrompt}\n\n---\n\n${prompt}` : prompt;
+
+      const result = await withRetry(() => model.generateContent(fullPrompt)) as any;
+      console.log(`[RAG] Chat respondido con modelo: ${modelName}`);
+      return result.response.text() ?? 'Sin respuesta.';
+    } catch (e: any) {
+      const msg = typeof e?.message === 'string' ? e.message : '';
+      lastError = e;
+      // Pasar al siguiente modelo si: cuota agotada, rate limit, o modelo no disponible
+      if (msg.includes('limit: 0') || msg.includes('429') || msg.includes('400')) {
+        console.warn(`[RAG] Modelo ${modelName} no disponible (${msg.slice(0, 80)}), probando siguiente…`);
+        continue;
+      }
+      throw e;
+    }
+  }
+  throw lastError ?? new Error('Todos los modelos de chat han agotado su cuota diaria.');
 }
 
 // ─── Public API ───────────────────────────────────────────────────────────────
@@ -99,12 +252,15 @@ export interface RagChunkSource {
  * Indexa todos los archivos del repositorio en la tabla rag_chunks.
  * Cada QueryDefinition se convierte en un chunk independiente.
  */
-export async function indexRepositoryFiles(): Promise<{ indexed: number; errors: number }> {
-  const { GoogleGenerativeAI } = await import('@google/generative-ai');
-  const genAI = new GoogleGenerativeAI(process.env.GOOGLE_GEMINI_API_KEY!);
+export async function indexRepositoryFiles(): Promise<{ indexed: number; errors: number; skipped: number; quotaExhausted: boolean }> {
+  const apiKey = process.env.GOOGLE_GEMINI_API_KEY!;
 
   const files = stmtAllRepoFiles.all() as any[];
   let indexed = 0, errors = 0;
+
+  // ── 1. Recopilar todos los chunks antes de hacer llamadas a la API ──────────
+  type Chunk = { id: string; client: string; geography: string | null; env: string; reportName: string; filename: string; text: string };
+  const chunks: Chunk[] = [];
 
   for (const file of files) {
     let reports: Array<{ report: string; queries: any[] }>;
@@ -116,38 +272,73 @@ export async function indexRepositoryFiles(): Promise<{ indexed: number; errors:
       errors++;
       continue;
     }
-
     for (const rep of reports) {
       if (!Array.isArray(rep.queries)) continue;
-
       for (let qi = 0; qi < rep.queries.length; qi++) {
-        const q    = rep.queries[qi];
-        const id   = `${file.id}::${rep.report}::${qi}`;
-        const text = queryToText(rep.report, q, file.client, file.geography, file.env);
-
-        try {
-          const emb = await embed(genAI, text);
-          stmtUpsert.run(
-            id,
-            file.client,
-            file.geography ?? null,
-            file.env,
-            rep.report,
-            q.filename,
-            text,
-            JSON.stringify(emb)
-          );
-          indexed++;
-        } catch (e: any) {
-          console.error(`[RAG] Error indexando chunk ${id}: ${e.message}`);
-          errors++;
-        }
+        const q = rep.queries[qi];
+        chunks.push({
+          id        : `${file.id}::${rep.report}::${qi}`,
+          client    : file.client,
+          geography : file.geography ?? null,
+          env       : file.env,
+          reportName: rep.report,
+          filename  : q.filename,
+          text      : queryToText(rep.report, q, file.client, file.geography, file.env),
+        });
       }
     }
   }
 
-  console.log(`[RAG] Indexado: ${indexed} chunks OK, ${errors} errores.`);
-  return { indexed, errors };
+  // ── 2. Filtrar chunks ya indexados (indexado incremental) ────────────────────
+  const existingIds = new Set(
+    (stmtExistingIds.all() as { id: string }[]).map(r => r.id)
+  );
+  const pending = chunks.filter(c => !existingIds.has(c.id));
+  const skipped = chunks.length - pending.length;
+  console.log(`[RAG] Total chunks: ${chunks.length} | Ya indexados: ${skipped} | Pendientes: ${pending.length}`);
+
+  if (pending.length === 0) {
+    console.log('[RAG] Nada que indexar, todo está al día.');
+    return { indexed: 0, errors: 0, skipped, quotaExhausted: false };
+  }
+
+  // ── 3. Procesar en lotes de EMBED_BATCH_SIZE ─────────────────────────────────
+  const totalBatches = Math.ceil(pending.length / EMBED_BATCH_SIZE);
+  console.log(`[RAG] ${pending.length} chunks pendientes → ${totalBatches} lotes de ${EMBED_BATCH_SIZE}`);
+
+  let quotaExhausted = false;
+
+  for (let i = 0; i < pending.length; i += EMBED_BATCH_SIZE) {
+    const batch   = pending.slice(i, i + EMBED_BATCH_SIZE);
+    const batchNo = Math.floor(i / EMBED_BATCH_SIZE) + 1;
+    console.log(`[RAG] Lote ${batchNo}/${totalBatches} (chunks ${i + 1}–${i + batch.length})`);
+
+    try {
+      const embeddings = await embedBatch(apiKey, batch.map(c => c.text));
+      for (let j = 0; j < batch.length; j++) {
+        const c = batch[j];
+        stmtUpsert.run(c.id, c.client, c.geography, c.env, c.reportName, c.filename, c.text, JSON.stringify(embeddings[j]));
+        indexed++;
+      }
+    } catch (e: any) {
+      const isDaily = e.message?.includes('PerDay') || e.message?.includes('EmbedContentRequests');
+      console.error(`[RAG] Error en lote ${batchNo}: ${e.message?.slice(0, 200)}`);
+      errors += batch.length;
+      if (isDaily) {
+        quotaExhausted = true;
+        console.warn('[RAG] Cuota diaria de embeddings agotada (1000/día). Pendientes:', pending.length - indexed, 'chunks.');
+        break;  // no seguir — mañana el indexado incremental retomará desde aquí
+      }
+    }
+
+    // 4 500 ms entre lotes → ~13 lotes/min, bajo el límite de 15 RPM
+    if (i + EMBED_BATCH_SIZE < pending.length) {
+      await new Promise(r => setTimeout(r, 4500));
+    }
+  }
+
+  console.log(`[RAG] Indexado: ${indexed} chunks OK, ${errors} errores, ${skipped} ya existían.`);
+  return { indexed, errors, skipped, quotaExhausted };
 }
 
 /**
@@ -155,56 +346,128 @@ export async function indexRepositoryFiles(): Promise<{ indexed: number; errors:
  * y llama a gpt-4o-mini para generar una respuesta.
  */
 export async function ragQuery(
-  question: string
+  question: string,
+  history: Array<{ role: string; content: string }> = [],
+  activeFilters: { geography: string | null; env: string | null; client: string | null } = { geography: null, env: null, client: null }
 ): Promise<{ answer: string; sources: RagChunkSource[] }> {
 
   const { GoogleGenerativeAI } = await import('@google/generative-ai');
-  const genAI = new GoogleGenerativeAI(process.env.GOOGLE_GEMINI_API_KEY!);
+  const apiKey = process.env.GOOGLE_GEMINI_API_KEY!;
+  const genAI  = new GoogleGenerativeAI(apiKey);
 
-  // 1. Embed la pregunta
-  const qEmb = await embed(genAI, question);
+  // Usar los filtros resueltos por el frontend directamente — no re-extraer del texto.
+  // El frontend ya heredó correctamente geografía/entorno del contexto activo de sesión.
+  const filters = activeFilters;
+  console.log(`[RAG] Filtros activos (del frontend):`, filters);
 
-  // 2. Recuperar top-5 chunks por similitud coseno
-  const allChunks = stmtAllChunks.all() as any[];
+  // 2. Embed la pregunta — enriquecida con el contexto de geografía activa
+  const questionForEmbedding = filters.geography
+    ? `${question} — geografía: ${filters.geography}${filters.env ? ', entorno: ' + filters.env : ''}`
+    : question;
+  const [qEmb] = await embedBatch(apiKey, [questionForEmbedding]);
 
-  if (allChunks.length === 0) {
+  // 3. Cargar el subconjunto de chunks con los filtros activos
+  const conditions: string[] = [];
+  const params   : any[]     = [];
+  if (filters.geography) { conditions.push("geography = ?"); params.push(filters.geography); }
+  if (filters.env)       { conditions.push("env = ?");       params.push(filters.env); }
+  if (filters.client)    { conditions.push("client = ?");    params.push(filters.client); }
+
+  const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+  const candidateChunks = db.prepare(
+    `SELECT id, client, geography, env, report_name, filename, content_text, embedding FROM rag_chunks ${whereClause}`
+  ).all(...params) as any[];
+
+  // Estrategia de fallback:
+  // - Si hay suficientes chunks con todos los filtros → usarlos
+  // - Si tenemos geografía (directa o heredada) y faltan resultados → relajar env/client pero MANTENER geografía
+  // - Solo ir al repo completo si NO hay ninguna geografía conocida
+  let chunks: any[];
+  if (candidateChunks.length >= 3) {
+    chunks = candidateChunks;
+  } else if (filters.geography) {
+    // Relajar env/client pero mantener geografía
+    const geoOnlyChunks = db.prepare(
+      'SELECT id, client, geography, env, report_name, filename, content_text, embedding FROM rag_chunks WHERE geography = ?'
+    ).all(filters.geography) as any[];
+    chunks = geoOnlyChunks.length > 0 ? geoOnlyChunks : (stmtAllChunks.all() as any[]);
+    console.log(`[RAG] Fallback parcial: ${geoOnlyChunks.length} chunks con geography=${filters.geography}`);
+  } else {
+    chunks = stmtAllChunks.all() as any[];
+    console.log(`[RAG] Sin filtros: usando todo el repositorio (${chunks.length} chunks).`);
+  }
+
+  if (chunks.length === 0) {
     return {
       answer : 'El repositorio todavía no está indexado. Pulsa "Indexar Repositorio" para comenzar.',
       sources: [],
     };
   }
 
-  const scored = allChunks
+  // 4. Rankear por similitud coseno dentro de los chunks filtrados
+  const allScored = chunks
     .map(c => ({ ...c, score: cosine(qEmb, JSON.parse(c.embedding) as number[]) }))
-    .sort((a, b) => b.score - a.score)
-    .slice(0, 5);
+    .sort((a, b) => b.score - a.score);
 
-  // 3. Construir el bloque de contexto
+  // Deduplicar por (report_name, filename): conservar el chunk de mayor score por archivo,
+  // con límite de 15 archivos distintos.
+  const seenFiles = new Map<string, typeof allScored[0]>();
+  for (const c of allScored) {
+    const key = `${c.report_name}::${c.filename}`;
+    if (!seenFiles.has(key)) seenFiles.set(key, c);
+    if (seenFiles.size >= 15) break;
+  }
+  const scored = Array.from(seenFiles.values());
+
+  // 5. Construir el bloque de contexto
   const context = scored
     .map((s, i) =>
       `[${i + 1}] Cliente: ${s.client}${s.geography ? ' / ' + s.geography : ''} | Entorno: ${s.env} | Reporte: ${s.report_name} | Archivo: ${s.filename}\n${s.content_text}`
     )
     .join('\n\n---\n\n');
 
-  // 4. Llamar a Gemini
-  const systemPrompt =
-    'Eres un asistente experto en SQL y datos del equipo ALQUID de NFQ. ' +
-    'Tienes acceso al repositorio de queries SQL de la organización. ' +
-    'Responde preguntas sobre qué hacen las queries, qué tablas y bases de datos usan, ' +
-    'qué parámetros necesitan, diferencias entre entornos (PRE/PRO), etc. ' +
-    'Sé preciso, técnico y conciso. Si la información está en el contexto, cítala directamente. ' +
-    'Si no tienes información suficiente, dilo explícitamente.';
+  // 6. Llamar a Gemini
+  // Anclar el modelo a la geografía activa — instrucción más fuerte y repetida
+  const geoAnchor = filters.geography
+    ? `\n\n⚠️ INSTRUCCIÓN CRÍTICA — GEOGRAFÍA ACTIVA: "${filters.geography}"${filters.env ? ` / ${filters.env}` : ''}.
+DEBES responder EXCLUSIVAMENTE sobre la geografía "${filters.geography}". 
+NO menciones ni incluyas información de ninguna otra geografía (Perú, Colombia, Argentina, etc.) aunque aparezca en el contexto o en el historial.
+Si el contexto no contiene información sobre "${filters.geography}", indícalo explícitamente en lugar de usar datos de otra geografía.`
+    : '';
 
-  const chatModel = genAI.getGenerativeModel({
-    model          : 'gemini-1.5-flash',
-    systemInstruction: systemPrompt,
-    generationConfig: { temperature: 0.2, maxOutputTokens: 1200 },
-  });
+  const systemPrompt = `Eres un asistente técnico experto en SQL y en la suite de datos ALQUID del equipo de NFQ.
+Tienes acceso al repositorio completo de queries SQL de la organización, incluyendo todos los clientes, geografías y entornos (PRE/PRO).${geoAnchor}
 
-  const result = await chatModel.generateContent(
-    `Contexto del repositorio:\n\n${context}\n\n---\n\nPregunta: ${question}`
+INSTRUCCIONES DE RESPUESTA:
+- Responde SIEMPRE en español.
+- Usa formato Markdown: encabezados, listas, bloques de código (\`\`\`sql) cuando muestres SQL.
+- Cuando listés informes o archivos, usa una lista numerada con el nombre del archivo y una descripción de qué hace.
+- Cuando expliques una query, indica: tabla(s) que consulta, base de datos, esquema, parámetros requeridos y un resumen de lo que calcula o extrae.
+- ESCENARIOS: Cuando pregunten por escenarios, lee el SQL y extrae TODOS los valores únicos que encuentres en expresiones como CASE WHEN lower(scenario) = '...', WHERE scenario IN (...), WHEN scenario = '...', etc. Lista cada escenario encontrado aunque sean muchos. No te limites a mencionar solo 'base'.
+- Si la pregunta es sobre diferencias PRE/PRO, compara explícitamente ambos entornos.
+- Lista TODOS los elementos relevantes que aparezcan en el contexto; no omitas ninguno.
+- Si hay información incompleta o ausente en el contexto, indícalo claramente.
+- Sé técnico y preciso. Cita los nombres de tablas, bases de datos y parámetros tal como aparecen en el contexto.`;
+
+  // Incluir solo mensajes usuario/asistente en el historial (no system), truncando respuestas largas
+  // para minimizar la contaminación de datos de otras geografías en el historial
+  const historyBlock = history.length > 0
+    ? 'Conversación anterior:\n' +
+      history.slice(-8).map(m => {
+        const label = m.role === 'user' ? 'Usuario' : m.role === 'assistant' ? 'Asistente' : null;
+        if (!label) return null;
+        // Para respuestas del asistente, truncar más agresivamente para evitar contaminación
+        const maxLen = m.role === 'assistant' ? 300 : 500;
+        return `${label}: ${m.content.slice(0, maxLen)}${m.content.length > maxLen ? '…' : ''}`;
+      }).filter(Boolean).join('\n\n') +
+      '\n\n---\n\n'
+    : '';
+
+  const answer = await generateWithFallback(
+    genAI,
+    `${historyBlock}Contexto del repositorio de queries SQL — geografía activa: ${filters.geography ?? 'todas'}:\n\n${context}\n\n---\n\nPregunta del usuario: ${question}`,
+    systemPrompt,
   );
-  const answer = result.response.text() ?? 'Sin respuesta.';
 
   const sources: RagChunkSource[] = scored.map(s => ({
     client    : s.client,

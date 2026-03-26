@@ -23,6 +23,28 @@ export interface User {
   role: 'admin' | 'user';
 }
 
+export interface RagSource {
+  client    : string;
+  geography : string | null;
+  env       : string;
+  reportName: string;
+  filename  : string;
+  score     : number;
+}
+
+export interface RagMessage {
+  role   : 'user' | 'assistant' | 'system';
+  content: string;
+  sources?: RagSource[];
+  isError?: boolean;
+}
+
+export interface RagStatusData {
+  chunksCount  : number;
+  lastIndexedAt: string | null;
+  hasApiKey    : boolean;
+}
+
 interface GlobalState {
   // Auth State
   user: User | null;
@@ -67,6 +89,14 @@ interface GlobalState {
   fetchRepositorySummary: () => Promise<void>;
   addRepositoryFile: (region: string, env: string, content: any, fileName: string, comment?: string) => Promise<any>;
   deleteRepositoryFile: (id: string, region: string, env: string) => Promise<void>;
+
+  // RAG Chat State
+  ragMessages: RagMessage[];
+  setRagMessages: React.Dispatch<React.SetStateAction<RagMessage[]>>;
+  ragStatus: RagStatusData;
+  setRagStatus: React.Dispatch<React.SetStateAction<RagStatusData>>;
+  ragActiveFilters: { geography: string | null; env: string | null; client: string | null };
+  setRagActiveFilters: React.Dispatch<React.SetStateAction<{ geography: string | null; env: string | null; client: string | null }>>;
 }
 
 const GlobalStateContext = createContext<GlobalState | undefined>(undefined);
@@ -130,6 +160,11 @@ export const GlobalStateProvider: React.FC<{ children: ReactNode }> = ({ childre
 
   const setEditorReports = (data: ReportDefinition[], fileName: string) => setEditorReportsState({ data, fileName });
   const clearEditorReports = () => setEditorReportsState({ data: [], fileName: null });
+
+  // --- RAG CHAT STATE ---
+  const [ragMessages,      setRagMessages     ] = useState<RagMessage[]>([]);
+  const [ragStatus,        setRagStatus       ] = useState<RagStatusData>({ chunksCount: 0, lastIndexedAt: null, hasApiKey: false });
+  const [ragActiveFilters, setRagActiveFilters] = useState<{ geography: string | null; env: string | null; client: string | null }>({ geography: null, env: null, client: null });
 
   // --- REPOSITORY STATE ---
   const [repositoryData, setRepositoryDataState] = useState<RepositoryData>({});
@@ -253,6 +288,7 @@ export const GlobalStateProvider: React.FC<{ children: ReactNode }> = ({ childre
 
       repositoryData, repositorySummary, fetchRepositoryFiles, fetchRepositorySummary,
       addRepositoryFile, deleteRepositoryFile,
+      ragMessages, setRagMessages, ragStatus, setRagStatus, ragActiveFilters, setRagActiveFilters,
       logout: () => {
         setUser(null);
         addLog('SISTEMA', 'LOGOUT', 'Sesión cerrada por el usuario', 'INFO');

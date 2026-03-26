@@ -593,14 +593,18 @@ async function startServer() {
       res.status(400).json({ error: 'GOOGLE_GEMINI_API_KEY no está configurada en .env' });
       return;
     }
-    const { question } = req.body as { question?: string };
+    const { question, history, filters } = req.body as {
+      question?: string;
+      history?: Array<{ role: string; content: string }>;
+      filters?: { geography: string | null; env: string | null; client: string | null };
+    };
     if (!question?.trim()) {
       res.status(400).json({ error: 'El campo "question" es obligatorio.' });
       return;
     }
     try {
       const { ragQuery } = await import('./rag.js');
-      const result = await ragQuery(question.trim());
+      const result = await ragQuery(question.trim(), history ?? [], filters ?? { geography: null, env: null, client: null });
       res.json(result);
     } catch (e: any) {
       console.error('[RAG] Query error:', e.message);
