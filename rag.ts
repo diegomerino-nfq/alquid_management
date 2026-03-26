@@ -199,13 +199,22 @@ const CHAT_MODEL_FALLBACK = [
   'gemma-3-4b-it',
 ];
 
+type ChatTurn = { role: 'user' | 'model'; parts: [{ text: string }] };
+
 /**
- * Llama a generateContent con fallback automático de modelos.
- * - Gemini: usa systemInstruction nativo.
- * - Gemma: no soporta systemInstruction → se inyecta en el texto del prompt.
+ * Llama a Gemini con fallback automático de modelos.
+ * - Gemini (no Gemma): usa startChat() con historial de turnos reales → el modelo
+ *   distingue correctamente "conversación previa" de "contexto actual SQL" y la
+ *   systemInstruction permanece autoritativa frente al historial.
+ * - Gemma: no soporta systemInstruction ni startChat → texto plano concatenado.
  * - Si un modelo tiene cuota agotada (429 / limit:0) pasa al siguiente.
  */
-async function generateWithFallback(genAI: any, prompt: string, systemPrompt: string): Promise<string> {
+async function generateWithFallback(
+  genAI: any,
+  currentMessage: string,
+  systemPrompt: string,
+  chatHistory: ChatTurn[] = [],
+): Promise<string> {
   let lastError: Error | null = null;
   for (const modelName of CHAT_MODEL_FALLBACK) {
     const isGemma = modelName.startsWith('gemma');
@@ -217,12 +226,21 @@ async function generateWithFallback(genAI: any, prompt: string, systemPrompt: st
       if (!isGemma) modelConfig.systemInstruction = systemPrompt;
 
       const model = genAI.getGenerativeModel(modelConfig);
-      // Para Gemma, el system prompt va embebido en el mensaje
-      const fullPrompt = isGemma ? `${systemPrompt}\n\n---\n\n${prompt}` : prompt;
 
-      const result = await withRetry(() => model.generateContent(fullPrompt)) as any;
-      console.log(`[RAG] Chat respondido con modelo: ${modelName}`);
-      return result.response.text() ?? 'Sin respuesta.';
+      if (!isGemma && chatHistory.length > 0) {
+        // Gemini con historial: usar startChat — los turnos previos son user/model reales,
+        // el contexto SQL se incluye solo en el mensaje actual (no se repite en historia).
+        const chat = model.startChat({ history: chatHistory });
+        const result = await withRetry(() => chat.sendMessage(currentMessage)) as any;
+        console.log(`[RAG] Chat respondido con modelo: ${modelName} (${chatHistory.length / 2 | 0} turnos previos)`);
+        return result.response.text() ?? 'Sin respuesta.';
+      } else {
+        // Sin historial o Gemma: generateContent directo
+        const fullPrompt = isGemma ? `${systemPrompt}\n\n---\n\n${currentMessage}` : currentMessage;
+        const result = await withRetry(() => model.generateContent(fullPrompt)) as any;
+        console.log(`[RAG] Chat respondido con modelo: ${modelName}`);
+        return result.response.text() ?? 'Sin respuesta.';
+      }
     } catch (e: any) {
       const msg = typeof e?.message === 'string' ? e.message : '';
       lastError = e;
@@ -449,25 +467,25 @@ INSTRUCCIONES DE RESPUESTA:
 - Si hay información incompleta o ausente en el contexto, indícalo claramente.
 - Sé técnico y preciso. Cita los nombres de tablas, bases de datos y parámetros tal como aparecen en el contexto.`;
 
-  // Incluir solo mensajes usuario/asistente en el historial (no system), truncando respuestas largas
-  // para minimizar la contaminación de datos de otras geografías en el historial
-  const historyBlock = history.length > 0
-    ? 'Conversación anterior:\n' +
-      history.slice(-8).map(m => {
-        const label = m.role === 'user' ? 'Usuario' : m.role === 'assistant' ? 'Asistente' : null;
-        if (!label) return null;
-        // Para respuestas del asistente, truncar más agresivamente para evitar contaminación
-        const maxLen = m.role === 'assistant' ? 300 : 500;
-        return `${label}: ${m.content.slice(0, maxLen)}${m.content.length > maxLen ? '…' : ''}`;
-      }).filter(Boolean).join('\n\n') +
-      '\n\n---\n\n'
-    : '';
+  // Construir historial de turnos reales (user/model alternados) para startChat.
+  // Los turnos históricos llevan solo el texto de pregunta/respuesta — SIN el contexto SQL
+  // de aquel momento, que ya no es relevante. De esta forma el historial no puede
+  // contener menciones a geografías anteriores que contaminen la respuesta actual.
+  const chatHistory: ChatTurn[] = [];
+  for (const m of history.slice(-8)) {
+    const role = m.role === 'user' ? 'user' : m.role === 'assistant' ? 'model' : null;
+    if (!role) continue;
+    // Gemini exige turnos user/model estrictamente alternados
+    if (chatHistory.length > 0 && chatHistory[chatHistory.length - 1].role === role) continue;
+    const maxLen = role === 'model' ? 800 : 600;
+    chatHistory.push({ role, parts: [{ text: m.content.slice(0, maxLen) }] });
+  }
 
-  const answer = await generateWithFallback(
-    genAI,
-    `${historyBlock}Contexto del repositorio de queries SQL — geografía activa: ${filters.geography ?? 'todas'}:\n\n${context}\n\n---\n\nPregunta del usuario: ${question}`,
-    systemPrompt,
-  );
+  // El mensaje actual lleva el contexto SQL fresco — solo para la pregunta de ahora.
+  const currentMessage =
+    `Contexto del repositorio de queries SQL (geografía activa: ${filters.geography ?? 'todas'}):\n\n${context}\n\n---\n\nPregunta del usuario: ${question}`;
+
+  const answer = await generateWithFallback(genAI, currentMessage, systemPrompt, chatHistory);
 
   const sources: RagChunkSource[] = scored.map(s => ({
     client    : s.client,
