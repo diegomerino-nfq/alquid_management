@@ -111,6 +111,7 @@ function cosine(a: number[], b: number[]): number {
  * Serializa una QueryDefinition como texto rico para embedding.
  * Incluye todos los metadatos relevantes + el SQL completo.
  */
+/** Texto completo guardado en BD y enviado al LLM — SQL sin truncar. */
 function queryToText(
   report   : string,
   query    : { sql: string; filename: string; database: string; schema?: string; table: string; parameters?: Record<string, any> },
@@ -118,19 +119,34 @@ function queryToText(
   geography: string | null,
   env      : string
 ): string {
-  const parts: string[] = [
+  const header = [
     `Cliente: ${client}${geography ? ', Geografía: ' + geography : ''}, Entorno: ${env}`,
     `Reporte: ${report}`,
     `Archivo: ${query.filename}`,
     `Base de datos: ${query.database}${query.schema ? ', Schema: ' + query.schema : ''}, Tabla: ${query.table}`,
   ];
   if (query.parameters && Object.keys(query.parameters).length > 0) {
-    parts.push(`Parámetros: ${Object.keys(query.parameters).join(', ')}`);
+    header.push(`Parámetros: ${Object.keys(query.parameters).join(', ')}`);
   }
-  // Truncar SQL a 1500 chars para no superar el límite de tokens del embedding
-  const sqlTruncated = query.sql.length > 1500 ? query.sql.slice(0, 1500) + '...[truncado]' : query.sql;
-  parts.push(`SQL:\n${sqlTruncated}`);
-  return parts.join('\n');
+  header.push(`SQL:\n${query.sql}`);
+  return header.join('\n');
+}
+
+/** Versión corta para embedding — SQL truncado a 1500 chars para respetar límite de tokens. */
+function queryToEmbedText(
+  report   : string,
+  query    : { sql: string; filename: string; database: string; schema?: string; table: string; parameters?: Record<string, any> },
+  client   : string,
+  geography: string | null,
+  env      : string
+): string {
+  const sqlShort = query.sql.length > 1500 ? query.sql.slice(0, 1500) + '...' : query.sql;
+  return [
+    `Cliente: ${client}${geography ? ', Geografía: ' + geography : ''}, Entorno: ${env}`,
+    `Reporte: ${report}`, `Archivo: ${query.filename}`,
+    `Base de datos: ${query.database}${query.schema ? ', Schema: ' + query.schema : ''}, Tabla: ${query.table}`,
+    `SQL:\n${sqlShort}`,
+  ].join('\n');
 }
 
 /**
@@ -192,46 +208,62 @@ async function embedBatch(apiKey: string, texts: string[]): Promise<number[][]> 
 
 /** Modelos de chat a intentar en orden cuando los anteriores tienen quota=0. */
 const CHAT_MODEL_FALLBACK = [
-  'gemini-2.0-flash-lite',
-  'gemini-2.0-flash',
+  'gemini-2.5-flash',       // mejor calidad, probado vía REST
+  'gemini-2.5-flash-lite',  // más rápido
+  'gemini-2.0-flash',       // fallback
+  'gemini-2.0-flash-lite',  // fallback
   'gemma-3-27b-it',
   'gemma-3-12b-it',
   'gemma-3-4b-it',
 ];
 
-type ChatTurn = { role: 'user' | 'model'; parts: [{ text: string }] };
-
 /**
  * Llama a Gemini con fallback automático de modelos.
+ * Usa REST directo (igual que embeddings) para evitar incompatibilidades del SDK v0.x.
  * Cada llamada es completamente autocontenida — sin historial de chat en el LLM.
- * La "memoria" conversacional se gestiona a nivel de SELECT en SQLite (geo/env filter),
- * de modo que el contexto SQL siempre es fresco y sin contaminación de turnos anteriores.
  */
 async function generateWithFallback(
-  genAI: any,
+  apiKey: string,
   currentMessage: string,
   systemPrompt: string,
 ): Promise<string> {
   let lastError: Error | null = null;
+
   for (const modelName of CHAT_MODEL_FALLBACK) {
-    const isGemma = modelName.startsWith('gemma');
     try {
-      const modelConfig: Record<string, any> = {
-        model           : modelName,
+      const url  = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${apiKey}`;
+      const body: Record<string, any> = {
+        systemInstruction: { parts: [{ text: systemPrompt }] },
+        contents: [{ role: 'user', parts: [{ text: currentMessage }] }],
         generationConfig: { temperature: 0.3, maxOutputTokens: 2048 },
       };
-      if (!isGemma) modelConfig.systemInstruction = systemPrompt;
 
-      const model = genAI.getGenerativeModel(modelConfig);
-      const fullPrompt = isGemma ? `${systemPrompt}\n\n---\n\n${currentMessage}` : currentMessage;
-      const result = await withRetry(() => model.generateContent(fullPrompt)) as any;
+      const res = await withRetry(async () => {
+        const r = await fetch(url, {
+          method : 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body   : JSON.stringify(body),
+        });
+        if (!r.ok) {
+          const errText = await r.text();
+          throw new Error(`[${r.status}] ${errText.slice(0, 300)}`);
+        }
+        return r.json();
+      });
+
+      const text = (result: any) =>
+        result?.candidates?.[0]?.content?.parts?.[0]?.text ?? 'Sin respuesta.';
+
       console.log(`[RAG] Respondido con modelo: ${modelName}`);
-      return result.response.text() ?? 'Sin respuesta.';
+      return text(res) as string;
     } catch (e: any) {
-      const msg = typeof e?.message === 'string' ? e.message : '';
+      const msg = typeof e?.message === 'string' ? e.message : String(e);
       lastError = e;
-      if (msg.includes('limit: 0') || msg.includes('429') || msg.includes('400')) {
-        console.warn(`[RAG] Modelo ${modelName} no disponible (${msg.slice(0, 80)}), probando siguiente…`);
+      // Seguir al siguiente modelo si: cuota agotada, rate limit o modelo no disponible / accesible
+      if (msg.includes('429') || msg.includes('[400]') || msg.includes('[403]') ||
+          msg.includes('limit: 0') || msg.includes('RESOURCE_EXHAUSTED') ||
+          msg.includes('quota') || msg.includes('not found')) {
+        console.warn(`[RAG] Modelo ${modelName} no disponible → ${msg.slice(0, 120)}`);
         continue;
       }
       throw e;
@@ -262,7 +294,7 @@ export async function indexRepositoryFiles(): Promise<{ indexed: number; errors:
   let indexed = 0, errors = 0;
 
   // ── 1. Recopilar todos los chunks antes de hacer llamadas a la API ──────────
-  type Chunk = { id: string; client: string; geography: string | null; env: string; reportName: string; filename: string; text: string };
+  type Chunk = { id: string; client: string; geography: string | null; env: string; reportName: string; filename: string; text: string; embedText: string };
   const chunks: Chunk[] = [];
 
   for (const file of files) {
@@ -286,7 +318,8 @@ export async function indexRepositoryFiles(): Promise<{ indexed: number; errors:
           env       : file.env,
           reportName: rep.report,
           filename  : q.filename,
-          text      : queryToText(rep.report, q, file.client, file.geography, file.env),
+          text      : queryToText(rep.report, q, file.client, file.geography, file.env),       // full SQL — stored in DB
+          embedText : queryToEmbedText(rep.report, q, file.client, file.geography, file.env), // truncated — for embedding
         });
       }
     }
@@ -317,7 +350,7 @@ export async function indexRepositoryFiles(): Promise<{ indexed: number; errors:
     console.log(`[RAG] Lote ${batchNo}/${totalBatches} (chunks ${i + 1}–${i + batch.length})`);
 
     try {
-      const embeddings = await embedBatch(apiKey, batch.map(c => c.text));
+      const embeddings = await embedBatch(apiKey, batch.map(c => c.embedText));
       for (let j = 0; j < batch.length; j++) {
         const c = batch[j];
         stmtUpsert.run(c.id, c.client, c.geography, c.env, c.reportName, c.filename, c.text, JSON.stringify(embeddings[j]));
@@ -354,9 +387,7 @@ export async function ragQuery(
   activeFilters: { geography: string | null; env: string | null; client: string | null } = { geography: null, env: null, client: null }
 ): Promise<{ answer: string; sources: RagChunkSource[] }> {
 
-  const { GoogleGenerativeAI } = await import('@google/generative-ai');
   const apiKey = process.env.GOOGLE_GEMINI_API_KEY!;
-  const genAI  = new GoogleGenerativeAI(apiKey);
 
   // Usar los filtros resueltos por el frontend directamente — no re-extraer del texto.
   // El frontend ya heredó correctamente geografía/entorno del contexto activo de sesión.
@@ -412,15 +443,17 @@ export async function ragQuery(
     .map(c => ({ ...c, score: cosine(qEmb, JSON.parse(c.embedding) as number[]) }))
     .sort((a, b) => b.score - a.score);
 
-  // Deduplicar por (report_name, filename): conservar el chunk de mayor score por archivo,
-  // con límite de 15 archivos distintos.
-  const seenFiles = new Map<string, typeof allScored[0]>();
-  for (const c of allScored) {
+  // Tomar los top-20 chunks por coseno — sin deduplicar por archivo:
+  // cada chunk es una query SQL distinta; descartar duplicados eliminaría información real.
+  const scored = allScored.slice(0, 20);
+  // Deduplicar solo para la lista de fuentes que ve el usuario (no para el contexto del LLM)
+  const seenSourceFiles = new Set<string>();
+  const uniqueSources = scored.filter(c => {
     const key = `${c.report_name}::${c.filename}`;
-    if (!seenFiles.has(key)) seenFiles.set(key, c);
-    if (seenFiles.size >= 15) break;
-  }
-  const scored = Array.from(seenFiles.values());
+    if (seenSourceFiles.has(key)) return false;
+    seenSourceFiles.add(key);
+    return true;
+  });
 
   // 5. Construir el bloque de contexto
   const context = scored
@@ -464,9 +497,9 @@ INSTRUCCIONES DE RESPUESTA:
   const currentMessage =
     `${geoHeader}Contexto del repositorio SQL filtrado por geografía activa:\n\n${context}\n\n---\n\nPregunta: ${question}`;
 
-  const answer = await generateWithFallback(genAI, currentMessage, systemPrompt);
+  const answer = await generateWithFallback(apiKey, currentMessage, systemPrompt);
 
-  const sources: RagChunkSource[] = scored.map(s => ({
+  const sources: RagChunkSource[] = uniqueSources.map(s => ({
     client    : s.client,
     geography : s.geography ?? null,
     env       : s.env,
