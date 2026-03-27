@@ -394,10 +394,37 @@ export async function ragQuery(
   const filters = activeFilters;
   console.log(`[RAG] Filtros activos (del frontend):`, filters);
 
-  // 2. Embed la pregunta — enriquecida con el contexto de geografía activa
+  // ── Expansión de la pregunta con sinónimos del dominio IRRBB/ALQUID ──────────
+  // Gemini-embedding-001 produce mejores vectores cuando la pregunta incluye
+  // los términos técnicos que realmente aparecen en las queries SQL del repo.
+  const DOMAIN_EXPANSIONS: [RegExp, string][] = [
+    [/\bniis?\b/i,          'NII Net Interest Income NII margen de intereses neto'],
+    [/\birrbb\b/i,          'IRRBB Interest Rate Risk Banking Book riesgo tipo interés'],
+    [/\bsmm\b/i,            'SMM prepayments pagos anticipados prepago cashflow'],
+    [/\bmer\b/i,            'MeR Market Risk riesgo mercado diferencia NII escenarios'],
+    [/\bcer\b/i,            'CeR Capital Economic Risk riesgo capital valor mercado Market Value'],
+    [/\bsoe\b|soe_t/i,      'SoE Statement of Earnings MTM mark-to-market ganancias pérdidas'],
+    [/\bbalance\b/i,        'Balance today notional duration macaulay market value effective duration yield'],
+    [/\bescenario\b/i,      'escenario scenario CASE WHEN lower(scenario) base stress risk parallel short rate steepener flattener'],
+    [/\bparámetro|parametro/i, 'parámetro parameter load_id balance_date'],
+    [/\btabla\b/i,          'tabla table cashflow result metric alquid'],
+    [/\bbase de datos|database\b/i, 'base de datos database sol-pro sol-pre alquid-gc'],
+    [/\bpro\b/i,            'PRO producción entorno productivo sol-pro'],
+    [/\bpre\b/i,            'PRE preproducción entorno preproductivo sol-pre'],
+  ];
+
+  let expandedQuestion = question;
+  for (const [pattern, expansion] of DOMAIN_EXPANSIONS) {
+    if (pattern.test(question)) {
+      expandedQuestion += ' ' + expansion;
+      break; // una expansión es suficiente para no saturar el embedding
+    }
+  }
+
+  // 2. Embed la pregunta — enriquecida con contexto geográfico + expansión de dominio
   const questionForEmbedding = filters.geography
-    ? `${question} — geografía: ${filters.geography}${filters.env ? ', entorno: ' + filters.env : ''}`
-    : question;
+    ? `${expandedQuestion} — geografía: ${filters.geography}${filters.env ? ', entorno: ' + filters.env : ''}`
+    : expandedQuestion;
   const [qEmb] = await embedBatch(apiKey, [questionForEmbedding]);
 
   // 3. Cargar el subconjunto de chunks con los filtros activos
@@ -443,9 +470,15 @@ export async function ragQuery(
     .map(c => ({ ...c, score: cosine(qEmb, JSON.parse(c.embedding) as number[]) }))
     .sort((a, b) => b.score - a.score);
 
-  // Tomar los top-20 chunks por coseno — sin deduplicar por archivo:
-  // cada chunk es una query SQL distinta; descartar duplicados eliminaría información real.
-  const scored = allScored.slice(0, 20);
+  // Umbral de relevancia: si el top chunk supera 0.55, solo incluir chunks con score
+  // razonablemente cercano al máximo (≥ max*0.65). Esto evita enviar ruido al LLM.
+  // Si el top chunk es bajo (pregunta muy general), relajar el umbral.
+  const topScore  = allScored[0]?.score ?? 0;
+  const threshold = topScore > 0.55 ? topScore * 0.65 : 0.30;
+  const relevant  = allScored.filter(c => c.score >= threshold).slice(0, 20);
+  const scored    = relevant.length >= 2 ? relevant : allScored.slice(0, 10); // fallback mínimo
+  console.log(`[RAG] Top score: ${topScore.toFixed(3)} | Threshold: ${threshold.toFixed(3)} | Chunks seleccionados: ${scored.length}`);
+
   // Deduplicar solo para la lista de fuentes que ve el usuario (no para el contexto del LLM)
   const seenSourceFiles = new Set<string>();
   const uniqueSources = scored.filter(c => {
@@ -455,12 +488,25 @@ export async function ragQuery(
     return true;
   });
 
-  // 5. Construir el bloque de contexto
-  const context = scored
-    .map((s, i) =>
-      `[${i + 1}] Cliente: ${s.client}${s.geography ? ' / ' + s.geography : ''} | Entorno: ${s.env} | Reporte: ${s.report_name} | Archivo: ${s.filename}\n${s.content_text}`
-    )
-    .join('\n\n---\n\n');
+  // 5. Construir el bloque de contexto agrupado por informe/archivo
+  // Agrupar chunks del mismo archivo juntos con cabecera clara —
+  // el LLM procesa mejor el SQL cuando tiene toda la información del informe seguida.
+  const byFile = new Map<string, { meta: typeof scored[0]; chunks: typeof scored }>();
+  for (const c of scored) {
+    const key = `${c.report_name}::${c.filename}`;
+    if (!byFile.has(key)) byFile.set(key, { meta: c, chunks: [] });
+    byFile.get(key)!.chunks.push(c);
+  }
+
+  let contextIdx = 1;
+  const contextBlocks: string[] = [];
+  for (const { meta, chunks: fileChunks } of byFile.values()) {
+    const relevancePct = Math.round(meta.score * 100);
+    const header = `[${contextIdx++}] ★${relevancePct}% | ${meta.client}${meta.geography ? ' / ' + meta.geography : ''} | ${meta.env} | Reporte: ${meta.report_name} | Archivo: ${meta.filename}`;
+    const body   = fileChunks.map(c => c.content_text).join('\n\n--- (query siguiente del mismo archivo) ---\n\n');
+    contextBlocks.push(`${header}\n${body}`);
+  }
+  const context = contextBlocks.join('\n\n════════════════════════════════════════\n\n');
 
   // 6. Llamar a Gemini
   // Anclar el modelo a la geografía activa — instrucción más fuerte y repetida
@@ -474,12 +520,30 @@ Si el contexto no contiene información sobre "${filters.geography}", indícalo 
   const systemPrompt = `Eres un asistente técnico experto en SQL y en la suite de datos ALQUID del equipo de NFQ.
 Tienes acceso al repositorio completo de queries SQL de la organización, incluyendo todos los clientes, geografías y entornos (PRE/PRO).${geoAnchor}
 
-INSTRUCCIONES DE RESPUESTA:
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+GLOSARIO DEL DOMINIO ALQUID / IRRBB
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+• IRRBB (Interest Rate Risk in the Banking Book): riesgo de tipo de interés en cartera bancaria. Los informes miden el impacto de variaciones de tipos sobre el margen y el valor económico.
+• NII / NIIS (Net Interest Income / Sensitivity): margen de intereses neto y su sensibilidad ante cambios de tipos. Principal métrica de impacto en P&L a 12 meses.
+• MeR Detail (Market Risk – NII): diferencia de NII entre cada escenario y el escenario base. Indica cuánto cambia el margen si los tipos suben o bajan.
+• CeR Detail (Capital Economic Risk): diferencia de Market Value (valor económico) entre escenarios y base. Mide el impacto en valor de balance.
+• SoE_t0 / SoE_t12 (Statement of Earnings – MTM): mark-to-market en la fecha de balance (t0) y en el horizonte a 12 meses (t12). Recoge ganancias/pérdidas no realizadas.
+• SMM (Single Monthly Mortality): tasa mensual de prepago de hipotecas. En SQL aparece como tasas de prepago aplicadas a cashflows bucket a bucket.
+• Balance today + EVES (Economic Value of Equity Sensitivity): tabla que recoge nocional, duración efectiva, duración Macaulay, yield, valor mercado y su sensibilidad por escenario.
+• Escenarios típicos en ALQUID: base, +100bp / +200bp / +300bp, -100bp / -200bp / -300bp, risk, parallel, short_rate, steepener, flattener, stress_MF1 / stress_MF2 / stress_MF3, stress_VE1 / stress_VE2 / stress_VE3.
+• Parámetro universal: :load_id — identifica el snapshot de cálculo (combinación cliente + fecha + entorno). Aparece en EVERY query como filtro principal.
+• Tablas principales: cashflow (flujos de caja descontados por bucket), result (resultados NII/SoE por escenario), metric (métricas de balance: duración, valor mercado, nocional).
+• Base de datos: sol-pre (preproducción) y sol-pro (producción), prefijadas en el FROM de cada query como [sol-pre].[schema].[tabla] o [sol-pro].[schema].[tabla].
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+INSTRUCCIONES DE RESPUESTA
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 - Responde SIEMPRE en español.
 - Usa formato Markdown: encabezados, listas, bloques de código (\`\`\`sql) cuando muestres SQL.
 - Cuando listés informes o archivos, usa una lista numerada con el nombre del archivo y una descripción de qué hace.
 - Cuando expliques una query, indica: tabla(s) que consulta, base de datos, esquema, parámetros requeridos y un resumen de lo que calcula o extrae.
-- ESCENARIOS: Cuando pregunten por escenarios, lee el SQL y extrae TODOS los valores únicos que encuentres en expresiones como CASE WHEN lower(scenario) = '...', WHERE scenario IN (...), WHEN scenario = '...', etc. Lista cada escenario encontrado aunque sean muchos. No te limites a mencionar solo 'base'.
+- ESCENARIOS: Cuando pregunten por escenarios, lee el SQL y extrae TODOS los valores únicos que encuentres en expresiones como CASE WHEN lower(scenario) = '...', WHERE scenario IN (...), WHEN scenario = '...', etc. Lista todos sin omitir ninguno.
+- Si la pregunta menciona siglas del glosario (NII, MeR, CeR, SoE, SMM, IRRBB, etc.), aplica el glosario anterior para interpretar correctamente qué información buscar en el SQL.
 - Si la pregunta es sobre diferencias PRE/PRO, compara explícitamente ambos entornos.
 - Lista TODOS los elementos relevantes que aparezcan en el contexto; no omitas ninguno.
 - Si hay información incompleta o ausente en el contexto, indícalo claramente.
