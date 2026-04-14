@@ -36,9 +36,20 @@ interface ValidationState {
     contentToUpload: ReportDefinition[] | null;
 }
 
-// Get client logo path
-const getClientLogo = (client: Client) => {
-    return `/imagenes/${client}.${client === 'Banca March' ? 'png' : 'jpg'}`;
+// High-res logos via Clearbit (128px PNG)
+const CLIENT_LOGOS: Record<Client, string> = {
+    "Banca March":  "https://logo.clearbit.com/bancamarch.es",
+    "Bankinter":    "https://logo.clearbit.com/bankinter.com",
+    "BBVA":         "https://logo.clearbit.com/bbva.com",
+    "Pichincha":    "https://logo.clearbit.com/pichincha.com",
+};
+
+// Corporate background colors per bank
+const CLIENT_COLORS: Record<Client, string> = {
+    "Banca March":  "bg-[#004F2D]",
+    "Bankinter":    "bg-white",
+    "BBVA":         "bg-[#004481]",
+    "Pichincha":    "bg-[#1A3A6C]",
 };
 
 // Get geography flag
@@ -369,7 +380,7 @@ const Repository: React.FC = () => {
     // Comparison utilities removed for MVP
 
     return (
-        <div className="h-full flex flex-col animate-fade-in relative bg-gray-50/50">
+        <div className="h-full flex flex-col animate-fade-in relative bg-transparent text-nafra-text">
             <PageHeader
                 title="Repositorio Centralizado"
                 subtitle="Gestión jerárquica de configuraciones y versionado"
@@ -377,7 +388,7 @@ const Repository: React.FC = () => {
                 action={
                     <button
                         onClick={connectGitHub}
-                        className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-bold transition-all shadow-sm ${githubToken ? 'bg-green-100 text-green-700' : 'bg-gray-900 text-white hover:bg-gray-800'}`}
+                        className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-bold transition-all shadow-sm border ${githubToken ? 'bg-emerald-500/10 text-emerald-300 border-emerald-500/20' : 'bg-nafra-card text-nafra-text border-nafra-border hover:border-nafra-border-light'}`}
                     >
                         <Github size={18} />
                         {githubToken ? (githubUser?.login || 'Conectado') : 'Conectar GitHub'}
@@ -396,7 +407,7 @@ const Repository: React.FC = () => {
             <div className="flex-1 rounded-xl overflow-hidden flex flex-col relative w-full">
 
                 {/* Breadcrumb Navigation */}
-                <div className="px-6 py-4 flex items-center justify-between mb-4 mt-6">
+                <div className="px-6 py-4 flex items-center justify-between mb-4 mt-6 rounded-2xl border border-nafra-border bg-nafra-card">
                     <div className="flex items-center gap-3">
                         <button
                             onClick={() => {
@@ -407,7 +418,7 @@ const Repository: React.FC = () => {
                             disabled={!selectedClient}
                             className={`
                                 p-2 rounded-full transition-colors 
-                                ${!selectedClient ? 'text-gray-300 cursor-default' : 'text-alquid-navy hover:bg-white hover:shadow-sm'}
+                                ${!selectedClient ? 'text-nafra-text-muted cursor-default' : 'text-nafra-text hover:bg-nafra-surface hover:shadow-sm'}
                             `}
                         >
                             <ArrowLeft size={20} />
@@ -416,17 +427,17 @@ const Repository: React.FC = () => {
                         <nav className="flex items-center text-lg">
                             <span
                                 onClick={() => { setSelectedClient(null); setSelectedGeography(null); setSelectedEnv(null); }}
-                                className={`cursor-pointer transition-colors font-medium ${!selectedClient ? 'text-alquid-navy font-bold' : 'text-gray-400 hover:text-alquid-blue'}`}
+                                className={`cursor-pointer transition-colors font-medium ${!selectedClient ? 'text-nafra-text font-bold' : 'text-nafra-text-dim hover:text-nafra-accent'}`}
                             >
                                 Inicio
                             </span>
 
                             {selectedClient && (
                                 <>
-                                    <ChevronRight size={18} className="text-gray-300 mx-2" />
+                                    <ChevronRight size={18} className="text-nafra-text-muted mx-2" />
                                     <span
                                         onClick={() => { setSelectedGeography(null); setSelectedEnv(null); }}
-                                        className={`cursor-pointer transition-colors font-medium ${!selectedGeography && !selectedEnv ? 'text-alquid-navy font-bold' : 'text-gray-400 hover:text-alquid-blue'}`}
+                                        className={`cursor-pointer transition-colors font-medium ${!selectedGeography && !selectedEnv ? 'text-nafra-text font-bold' : 'text-nafra-text-dim hover:text-nafra-accent'}`}
                                     >
                                         {selectedClient}
                                     </span>
@@ -435,10 +446,10 @@ const Repository: React.FC = () => {
 
                             {selectedGeography && (
                                 <>
-                                    <ChevronRight size={18} className="text-gray-300 mx-2" />
+                                    <ChevronRight size={18} className="text-nafra-text-muted mx-2" />
                                     <span
                                         onClick={() => setSelectedEnv(null)}
-                                        className={`flex items-center gap-2 cursor-pointer transition-colors font-medium ${!selectedEnv ? 'text-alquid-navy font-bold' : 'text-gray-400 hover:text-alquid-blue'}`}
+                                        className={`flex items-center gap-2 cursor-pointer transition-colors font-medium ${!selectedEnv ? 'text-nafra-text font-bold' : 'text-nafra-text-dim hover:text-nafra-accent'}`}
                                     >
                                         <img src={getGeographyFlag(selectedGeography)} alt="" className="w-5 h-5 rounded-full object-cover shadow-sm" />
                                         {selectedGeography}
@@ -448,8 +459,8 @@ const Repository: React.FC = () => {
 
                             {selectedEnv && (
                                 <>
-                                    <ChevronRight size={18} className="text-gray-300 mx-2" />
-                                    <span className="text-alquid-navy font-bold bg-white px-3 py-1 rounded-lg shadow-sm border border-gray-100">
+                                    <ChevronRight size={18} className="text-nafra-text-muted mx-2" />
+                                    <span className="text-nafra-text font-bold bg-nafra-surface px-3 py-1 rounded-lg shadow-sm border border-nafra-border">
                                         {selectedEnv}
                                     </span>
                                 </>
@@ -476,31 +487,31 @@ const Repository: React.FC = () => {
                                     <div
                                         key={client}
                                         onClick={() => setSelectedClient(client)}
-                                        className="bg-white rounded-2xl p-6 shadow-sm border border-gray-200/60 hover:shadow-xl hover:border-alquid-blue/30 cursor-pointer transition-all group relative overflow-hidden flex flex-col justify-between h-48"
+                                        className="bg-nafra-card rounded-2xl p-6 shadow-premium border border-nafra-border hover:border-nafra-border-light cursor-pointer transition-all group relative overflow-hidden flex flex-col justify-between h-48"
                                     >
                                         <div className="flex items-start justify-between">
-                                            <h3 className="text-xl font-bold text-gray-800 group-hover:text-alquid-navy transition-colors">{client}</h3>
+                                            <h3 className="text-xl font-bold text-nafra-text group-hover:text-nafra-accent transition-colors">{client}</h3>
                                             <img
-                                                src={getClientLogo(client)}
+                                                src={CLIENT_LOGOS[client]}
                                                 alt={client}
-                                                className="w-12 h-12 rounded-full object-cover shadow-md border-2 border-white group-hover:scale-110 transition-transform duration-300"
+                                                className={`w-12 h-12 rounded-full object-contain p-1.5 shadow-md ${CLIENT_COLORS[client]} group-hover:scale-110 transition-transform duration-300`}
                                                 onError={(e) => {
-                                                    (e.target as HTMLImageElement).src = 'https://via.placeholder.com/48?text=' + client.substring(0, 2).toUpperCase();
+                                                    (e.target as HTMLImageElement).src = `/imagenes/${client}.${client === 'Banca March' ? 'png' : 'jpg'}`;
                                                 }}
                                             />
                                         </div>
 
                                         <div>
-                                            <div className="flex items-center gap-2 text-sm text-gray-500 mb-4">
-                                                <Folder size={16} className="text-gray-400" />
+                                            <div className="flex items-center gap-2 text-sm text-nafra-text-dim mb-4">
+                                                <Folder size={16} className="text-nafra-text-muted" />
                                                 <span>{totalFiles} archivos en total</span>
                                             </div>
 
-                                            <div className="flex items-center justify-between mt-auto pt-4 border-t border-gray-50">
-                                                <span className="text-xs font-bold text-alquid-blue uppercase tracking-wider group-hover:underline">
+                                            <div className="flex items-center justify-between mt-auto pt-4 border-t border-nafra-border">
+                                                <span className="text-xs font-bold text-nafra-accent uppercase tracking-wider group-hover:underline">
                                                     {hasGeographies ? 'Ver Geografías' : 'Ver Entornos'}
                                                 </span>
-                                                <div className="w-8 h-8 rounded-full bg-gray-50 flex items-center justify-center text-gray-400 group-hover:bg-alquid-blue group-hover:text-white transition-all">
+                                                <div className="w-8 h-8 rounded-full bg-nafra-surface flex items-center justify-center text-nafra-text-dim group-hover:bg-nafra-accent group-hover:text-white transition-all">
                                                     <ChevronRight size={16} />
                                                 </div>
                                             </div>
@@ -524,10 +535,10 @@ const Repository: React.FC = () => {
                                     <div
                                         key={geography}
                                         onClick={() => setSelectedGeography(geography)}
-                                        className="bg-white rounded-2xl p-6 shadow-sm border border-gray-200/60 hover:shadow-xl hover:border-alquid-blue/30 cursor-pointer transition-all group relative overflow-hidden flex flex-col justify-between h-48"
+                                        className="bg-nafra-card rounded-2xl p-6 shadow-premium border border-nafra-border hover:border-nafra-border-light cursor-pointer transition-all group relative overflow-hidden flex flex-col justify-between h-48"
                                     >
                                         <div className="flex items-start justify-between">
-                                            <h3 className="text-xl font-bold text-gray-800 group-hover:text-alquid-navy transition-colors">{geography}</h3>
+                                            <h3 className="text-xl font-bold text-nafra-text group-hover:text-nafra-accent transition-colors">{geography}</h3>
                                             <img
                                                 src={getGeographyFlag(geography)}
                                                 alt={geography}
@@ -536,14 +547,14 @@ const Repository: React.FC = () => {
                                         </div>
 
                                         <div>
-                                            <div className="flex items-center gap-2 text-sm text-gray-500 mb-4">
-                                                <Folder size={16} className="text-gray-400" />
+                                            <div className="flex items-center gap-2 text-sm text-nafra-text-dim mb-4">
+                                                <Folder size={16} className="text-nafra-text-muted" />
                                                 <span>{totalFiles} archivos en total</span>
                                             </div>
 
-                                            <div className="flex items-center justify-between mt-auto pt-4 border-t border-gray-50">
-                                                <span className="text-xs font-bold text-alquid-blue uppercase tracking-wider group-hover:underline">Ver Entornos</span>
-                                                <div className="w-8 h-8 rounded-full bg-gray-50 flex items-center justify-center text-gray-400 group-hover:bg-alquid-blue group-hover:text-white transition-all">
+                                            <div className="flex items-center justify-between mt-auto pt-4 border-t border-nafra-border">
+                                                <span className="text-xs font-bold text-nafra-accent uppercase tracking-wider group-hover:underline">Ver Entornos</span>
+                                                <div className="w-8 h-8 rounded-full bg-nafra-surface flex items-center justify-center text-nafra-text-dim group-hover:bg-nafra-accent group-hover:text-white transition-all">
                                                     <ChevronRight size={16} />
                                                 </div>
                                             </div>
@@ -571,50 +582,50 @@ const Repository: React.FC = () => {
                                         key={env}
                                         onClick={() => setSelectedEnv(env)}
                                         className={`
-                                            relative p-0 rounded-3xl border cursor-pointer transition-all hover:shadow-2xl hover:-translate-y-1 overflow-hidden group
-                                            ${isPro ? 'border-blue-100 bg-white hover:border-blue-300' : 'border-orange-100 bg-white hover:border-orange-300'}
+                                            relative p-0 rounded-3xl border cursor-pointer transition-all hover:shadow-2xl hover:-translate-y-1 overflow-hidden group bg-nafra-card
+                                            ${isPro ? 'border-nafra-accent/30 hover:border-nafra-accent/60' : 'border-nafra-warning/30 hover:border-nafra-warning/60'}
                                         `}
                                     >
-                                        <div className={`absolute -top-10 -right-10 w-40 h-40 rounded-full blur-3xl opacity-20 ${isPro ? 'bg-blue-500' : 'bg-orange-500'}`}></div>
+                                        <div className={`absolute -top-10 -right-10 w-40 h-40 rounded-full blur-3xl opacity-20 ${isPro ? 'bg-nafra-accent' : 'bg-nafra-warning'}`}></div>
 
                                         <div className="p-8 relative z-10">
                                             <div className="flex items-center justify-between mb-8">
                                                 <div>
-                                                    <h3 className="text-4xl font-black tracking-tight text-gray-800">{env}</h3>
-                                                    <p className={`text-sm font-medium mt-1 ${isPro ? 'text-blue-500' : 'text-orange-500'}`}>
+                                                    <h3 className="text-4xl font-black tracking-tight text-nafra-text">{env}</h3>
+                                                    <p className={`text-sm font-medium mt-1 ${isPro ? 'text-nafra-accent' : 'text-nafra-warning'}`}>
                                                         {isPro ? "Entorno de Producción" : "Entorno de Pre-producción"}
                                                     </p>
                                                 </div>
                                                 <div className={`
-                                                    w-16 h-16 rounded-2xl flex items-center justify-center shadow-lg backdrop-blur-md bg-white/50 border border-white/50
-                                                    ${isPro ? 'text-blue-600' : 'text-orange-600'}
+                                                    w-16 h-16 rounded-2xl flex items-center justify-center shadow-lg backdrop-blur-md bg-nafra-surface/80 border border-nafra-border
+                                                    ${isPro ? 'text-nafra-accent' : 'text-nafra-warning'}
                                                 `}>
                                                     <Database size={32} />
                                                 </div>
                                             </div>
 
                                             <div className="space-y-3 mb-8">
-                                                <div className="flex items-center justify-between text-sm p-3 rounded-xl bg-gray-50 border border-gray-100">
-                                                    <div className="flex items-center gap-2 text-gray-500">
+                                                <div className="flex items-center justify-between text-sm p-3 rounded-xl bg-nafra-surface border border-nafra-border">
+                                                    <div className="flex items-center gap-2 text-nafra-text-dim">
                                                         <FileJson size={16} /> Total Archivos
                                                     </div>
-                                                    <span className="font-bold text-gray-800">{filesCount}</span>
+                                                    <span className="font-bold text-nafra-text">{filesCount}</span>
                                                 </div>
 
-                                                <div className="flex items-center justify-between text-sm p-3 rounded-xl bg-gray-50 border border-gray-100">
-                                                    <div className="flex items-center gap-2 text-gray-500">
+                                                <div className="flex items-center justify-between text-sm p-3 rounded-xl bg-nafra-surface border border-nafra-border">
+                                                    <div className="flex items-center gap-2 text-nafra-text-dim">
                                                         <Check size={16} /> Versión Activa
                                                     </div>
-                                                    <span className={`font-bold px-2 py-0.5 rounded text-xs ${filesCount > 0 && latestFile ? 'bg-green-100 text-green-700' : 'bg-gray-200 text-gray-400'}`}>
+                                                    <span className={`font-bold px-2 py-0.5 rounded text-xs ${filesCount > 0 && latestFile ? 'bg-emerald-500/10 text-emerald-300' : 'bg-nafra-border text-nafra-text-muted'}`}>
                                                         {filesCount > 0 && latestFile ? `v${latestFile.version}` : 'N/A'}
                                                     </span>
                                                 </div>
 
-                                                <div className="flex items-center justify-between text-sm p-3 rounded-xl bg-gray-50 border border-gray-100">
-                                                    <div className="flex items-center gap-2 text-gray-500">
+                                                <div className="flex items-center justify-between text-sm p-3 rounded-xl bg-nafra-surface border border-nafra-border">
+                                                    <div className="flex items-center gap-2 text-nafra-text-dim">
                                                         <Clock size={16} /> Última Actualización
                                                     </div>
-                                                    <span className="font-medium text-gray-800 text-xs">
+                                                    <span className="font-medium text-nafra-text text-xs">
                                                         {filesCount > 0 && latestFile ? latestFile.uploadedAt?.split(',')[0] : '-'}
                                                     </span>
                                                 </div>
@@ -622,7 +633,7 @@ const Repository: React.FC = () => {
 
                                             <div className={`
                                                 flex items-center justify-center gap-2 py-3 rounded-xl font-bold text-sm transition-colors
-                                                ${isPro ? 'bg-blue-50 text-blue-600 group-hover:bg-blue-600 group-hover:text-white' : 'bg-orange-50 text-orange-600 group-hover:bg-orange-500 group-hover:text-white'}
+                                                ${isPro ? 'bg-nafra-accent/10 text-nafra-accent group-hover:bg-nafra-accent group-hover:text-white' : 'bg-nafra-warning/10 text-nafra-warning group-hover:bg-nafra-warning group-hover:text-nafra-bg'}
                                             `}>
                                                 Gestionar Archivos <ChevronRight size={16} />
                                             </div>
@@ -651,7 +662,7 @@ const Repository: React.FC = () => {
                                         onClick={() => setSelectedEnv(env)}
                                         className={`
                                             relative p-0 rounded-3xl border cursor-pointer transition-all hover:shadow-2xl hover:-translate-y-1 overflow-hidden group
-                                            ${isPro ? 'border-blue-100 bg-white hover:border-blue-300' : 'border-orange-100 bg-white hover:border-orange-300'}
+                                            ${isPro ? 'border-nafra-border bg-nafra-card hover:border-blue-400' : 'border-nafra-border bg-nafra-card hover:border-orange-400'}
                                         `}
                                     >
                                         <div className={`absolute -top-10 -right-10 w-40 h-40 rounded-full blur-3xl opacity-20 ${isPro ? 'bg-blue-500' : 'bg-orange-500'}`}></div>
@@ -659,13 +670,13 @@ const Repository: React.FC = () => {
                                         <div className="p-8 relative z-10">
                                             <div className="flex items-center justify-between mb-8">
                                                 <div>
-                                                    <h3 className="text-4xl font-black tracking-tight text-gray-800">{env}</h3>
+                                                    <h3 className="text-4xl font-black tracking-tight text-nafra-text">{env}</h3>
                                                     <p className={`text-sm font-medium mt-1 ${isPro ? 'text-blue-500' : 'text-orange-500'}`}>
                                                         {isPro ? "Entorno de Producción" : "Entorno de Pre-producción"}
                                                     </p>
                                                 </div>
                                                 <div className={`
-                                                    w-16 h-16 rounded-2xl flex items-center justify-center shadow-lg backdrop-blur-md bg-white/50 border border-white/50
+                                                    w-16 h-16 rounded-2xl flex items-center justify-center shadow-lg backdrop-blur-md bg-nafra-surface/50 border border-nafra-border
                                                     ${isPro ? 'text-blue-600' : 'text-orange-600'}
                                                 `}>
                                                     <Database size={32} />
@@ -673,27 +684,27 @@ const Repository: React.FC = () => {
                                             </div>
 
                                             <div className="space-y-3 mb-8">
-                                                <div className="flex items-center justify-between text-sm p-3 rounded-xl bg-gray-50 border border-gray-100">
-                                                    <div className="flex items-center gap-2 text-gray-500">
+                                                <div className="flex items-center justify-between text-sm p-3 rounded-xl bg-nafra-surface border border-nafra-border">
+                                                    <div className="flex items-center gap-2 text-nafra-text-dim">
                                                         <FileJson size={16} /> Total Archivos
                                                     </div>
-                                                    <span className="font-bold text-gray-800">{filesCount}</span>
+                                                    <span className="font-bold text-nafra-text">{filesCount}</span>
                                                 </div>
 
-                                                <div className="flex items-center justify-between text-sm p-3 rounded-xl bg-gray-50 border border-gray-100">
-                                                    <div className="flex items-center gap-2 text-gray-500">
+                                                <div className="flex items-center justify-between text-sm p-3 rounded-xl bg-nafra-surface border border-nafra-border">
+                                                    <div className="flex items-center gap-2 text-nafra-text-dim">
                                                         <Check size={16} /> Versión Activa
                                                     </div>
-                                                    <span className={`font-bold px-2 py-0.5 rounded text-xs ${filesCount > 0 && latestFile ? 'bg-green-100 text-green-700' : 'bg-gray-200 text-gray-400'}`}>
+                                                    <span className={`font-bold px-2 py-0.5 rounded text-xs ${filesCount > 0 && latestFile ? 'bg-green-900/40 text-green-400' : 'bg-nafra-border text-nafra-text-muted'}`}>
                                                         {filesCount > 0 && latestFile ? `v${latestFile.version}` : 'N/A'}
                                                     </span>
                                                 </div>
 
-                                                <div className="flex items-center justify-between text-sm p-3 rounded-xl bg-gray-50 border border-gray-100">
-                                                    <div className="flex items-center gap-2 text-gray-500">
+                                                <div className="flex items-center justify-between text-sm p-3 rounded-xl bg-nafra-surface border border-nafra-border">
+                                                    <div className="flex items-center gap-2 text-nafra-text-dim">
                                                         <Clock size={16} /> Última Actualización
                                                     </div>
-                                                    <span className="font-medium text-gray-800 text-xs">
+                                                    <span className="font-medium text-nafra-text text-xs">
                                                         {filesCount > 0 && latestFile ? latestFile.uploadedAt?.split(',')[0] : '-'}
                                                     </span>
                                                 </div>
@@ -714,18 +725,18 @@ const Repository: React.FC = () => {
 
                     {/* LEVEL 4: FILE LIST */}
                     {selectedClient && selectedEnv && ((CLIENT_GEOGRAPHIES[selectedClient] && selectedGeography) || !CLIENT_GEOGRAPHIES[selectedClient]) && (
-                        <div className="animate-fade-in h-full flex flex-col bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
-                            <div className="flex justify-between items-center p-6 border-b border-gray-100">
+                        <div className="animate-fade-in h-full flex flex-col bg-nafra-card rounded-2xl shadow-premium border border-nafra-border overflow-hidden">
+                            <div className="flex justify-between items-center p-6 border-b border-nafra-border bg-nafra-surface">
                                 <div>
-                                    <h3 className="text-lg font-bold text-gray-800">Historial de Versiones</h3>
-                                    <p className="text-sm text-gray-500 mt-1">
+                                    <h3 className="text-lg font-bold text-nafra-text">Historial de Versiones</h3>
+                                    <p className="text-sm text-nafra-text-dim mt-1">
                                         Gestión de archivos para {selectedClient} {selectedGeography && `(${selectedGeography})`} ({selectedEnv})
                                     </p>
                                 </div>
                                 <div>
                                     <button
                                         onClick={triggerUpload}
-                                        className="bg-alquid-navy hover:bg-blue-900 text-white px-5 py-2.5 rounded-xl font-bold text-sm flex items-center gap-2 shadow-lg shadow-blue-900/10 transition-all hover:-translate-y-0.5"
+                                        className="bg-nafra-accent hover:bg-nafra-accent-dim text-white px-5 py-2.5 rounded-xl font-bold text-sm flex items-center gap-2 shadow-lg transition-all"
                                     >
                                         <Upload size={18} /> Subir Nueva Versión
                                     </button>
@@ -734,17 +745,17 @@ const Repository: React.FC = () => {
 
                             <div className="flex-1 overflow-hidden">
                                 {!repositoryData[selectedClient]?.[selectedGeography || 'null']?.[selectedEnv!] || repositoryData[selectedClient][selectedGeography || 'null'][selectedEnv!].length === 0 ? (
-                                    <div className="h-96 flex flex-col items-center justify-center text-center p-8">
-                                        <div className="w-24 h-24 bg-gray-50 rounded-full flex items-center justify-center mb-6">
-                                            <Archive size={40} className="text-gray-300" />
+                                    <div className="h-96 flex flex-col items-center justify-center text-center p-8 text-nafra-text-dim">
+                                        <div className="w-24 h-24 bg-nafra-surface rounded-full flex items-center justify-center mb-6">
+                                            <Archive size={40} className="text-nafra-text-muted" />
                                         </div>
-                                        <h3 className="text-xl font-bold text-gray-800 mb-2">Repositorio Vacío</h3>
-                                        <p className="text-gray-500 max-w-sm mb-8">
+                                        <h3 className="text-xl font-bold text-nafra-text mb-2">Repositorio Vacío</h3>
+                                        <p className="text-nafra-text-dim max-w-sm mb-8">
                                             Aún no se han cargado configuraciones para este entorno. Comienza subiendo tu primer archivo JSON.
                                         </p>
                                         <button
                                             onClick={triggerUpload}
-                                            className="px-8 py-3 bg-white border-2 border-dashed border-gray-300 rounded-xl text-gray-500 font-bold hover:border-alquid-blue hover:text-alquid-blue hover:bg-blue-50 transition-all"
+                                            className="px-8 py-3 bg-nafra-card border-2 border-dashed border-nafra-border rounded-xl text-nafra-text-dim font-bold hover:border-nafra-accent hover:text-nafra-accent hover:bg-nafra-surface transition-all"
                                         >
                                             + Subir primer archivo
                                         </button>
@@ -752,74 +763,74 @@ const Repository: React.FC = () => {
                                 ) : (
                                     <div className="overflow-x-auto h-full">
                                         <table className="w-full text-left border-collapse">
-                                            <thead className="bg-gray-50 text-gray-500 text-xs uppercase tracking-wider border-b border-gray-200 sticky top-0 z-10">
+                                            <thead className="bg-nafra-surface text-nafra-text-muted text-xs uppercase tracking-wider border-b border-nafra-border sticky top-0 z-10">
                                                 <tr>
-                                                                            <th className="px-6 py-4 font-semibold w-24 text-center bg-gray-50">Versión</th>
-                                                    <th className="px-6 py-4 font-semibold bg-gray-50">Nombre Archivo</th>
-                                                    <th className="px-6 py-4 font-semibold bg-gray-50">Comentario</th>
-                                                    <th className="px-6 py-4 font-semibold bg-gray-50">Fecha Carga</th>
-                                                    <th className="px-6 py-4 font-semibold bg-gray-50">Usuario</th>
-                                                    <th className="px-6 py-4 font-semibold w-32 text-center bg-gray-50">Acciones</th>
+                                                <th className="px-6 py-4 font-semibold w-24 text-center">Versión</th>
+                                                    <th className="px-6 py-4 font-semibold">Nombre Archivo</th>
+                                                    <th className="px-6 py-4 font-semibold">Comentario</th>
+                                                    <th className="px-6 py-4 font-semibold">Fecha Carga</th>
+                                                    <th className="px-6 py-4 font-semibold">Usuario</th>
+                                                    <th className="px-6 py-4 font-semibold w-32 text-center">Acciones</th>
                                                 </tr>
                                             </thead>
-                                            <tbody className="divide-y divide-gray-100 bg-white">
+                                            <tbody className="divide-y divide-nafra-border bg-nafra-card">
                                                 {[...repositoryData[selectedClient]![selectedGeography || 'null']![selectedEnv!]].sort((a, b) => b.version - a.version).map((file, idx) => {
                                                     return (
                                                         <tr
                                                             key={file.id}
                                                             onClick={() => setSelectedFile(file)}
                                                             className={`
-                                                                group hover:bg-blue-50 cursor-pointer transition-colors
-                                                                ${idx === 0 ? 'bg-blue-50/10' : ''}
+                                                                group hover:bg-nafra-card-hover cursor-pointer transition-colors
+                                                                ${idx === 0 ? 'bg-nafra-surface/50' : ''}
                                                             `}
                                                         >
                                                             <td className="px-6 py-4 text-center">
                                                                 <span className={`
                                                                     px-2.5 py-1 rounded-md text-xs font-mono font-bold
-                                                                    ${idx === 0 ? 'bg-green-100 text-green-700 ring-1 ring-green-200' : 'bg-gray-100 text-gray-600'}
+                                                                    ${idx === 0 ? 'bg-green-900/40 text-green-400 ring-1 ring-green-700' : 'bg-nafra-surface text-nafra-text-dim'}
                                                                 `}>
                                                                     v{file.version}
                                                                 </span>
                                                             </td>
                                                             <td className="px-6 py-4">
                                                                 <div className="flex items-center gap-3">
-                                                                    <div className="p-2 bg-gray-50 rounded-lg text-gray-400 group-hover:text-alquid-blue group-hover:bg-white transition-colors">
+                                                                    <div className="p-2 bg-nafra-surface rounded-lg text-nafra-text-muted group-hover:text-alquid-blue group-hover:bg-nafra-card-hover transition-colors">
                                                                         <FileJson size={18} />
                                                                     </div>
                                                                     <div>
-                                                                        <span className="font-medium text-gray-700 group-hover:text-alquid-navy block">{file.fileName}</span>
+                                                                        <span className="font-medium text-nafra-text-dim group-hover:text-nafra-text block">{file.fileName}</span>
                                                                         {idx === 0 && <span className="text-[10px] font-bold text-green-600">ACTUAL</span>}
                                                                     </div>
                                                                 </div>
                                                             </td>
                                                             <td className="px-6 py-4">
-                                                                <p className="text-xs text-gray-600 italic line-clamp-2 max-w-[200px]" title={file.comment}>
-                                                                    {file.comment || <span className="text-gray-300">Sin comentario</span>}
+                                                                <p className="text-xs text-nafra-text-dim italic line-clamp-2 max-w-[200px]" title={file.comment}>
+                                                                    {file.comment || <span className="text-nafra-text-muted">Sin comentario</span>}
                                                                 </p>
                                                             </td>
-                                                            <td className="px-6 py-4 text-sm text-gray-500">
+                                                            <td className="px-6 py-4 text-sm text-nafra-text-dim">
                                                                 <div className="flex items-center gap-2">
-                                                                    <Calendar size={14} className="text-gray-400" />
+                                                                    <Calendar size={14} className="text-nafra-text-muted" />
                                                                     {new Date(file.uploadedAt).toLocaleString('es-ES', { hour: '2-digit', minute: '2-digit', day: '2-digit', month: '2-digit', year: 'numeric' })}
                                                                 </div>
                                                             </td>
-                                                            <td className="px-6 py-4 text-sm text-gray-500">
+                                                            <td className="px-6 py-4 text-sm text-nafra-text-dim">
                                                                 <div className="flex items-center gap-2">
-                                                                    <User size={14} className="text-gray-400" />
+                                                                    <User size={14} className="text-nafra-text-muted" />
                                                                     {file.uploadedBy}
                                                                 </div>
                                                             </td>
                                                             <td className="px-6 py-4 text-center flex justify-center gap-2">
                                                                 <button
                                                                     onClick={(e) => { e.stopPropagation(); openGithubModal(file); }}
-                                                                    className="text-gray-400 hover:text-gray-900 p-2 rounded-lg hover:bg-white border border-transparent hover:border-gray-200 transition-all shadow-sm hover:shadow"
+                                                                    className="text-nafra-text-muted hover:text-nafra-text p-2 rounded-lg hover:bg-nafra-surface border border-transparent hover:border-nafra-border transition-all"
                                                                     title="Guardar en GitHub"
                                                                 >
                                                                     <Github size={18} />
                                                                 </button>
                                                                 <button
                                                                     onClick={(e) => downloadFile(file, e)}
-                                                                    className="text-gray-400 hover:text-alquid-blue p-2 rounded-lg hover:bg-white border border-transparent hover:border-gray-200 transition-all shadow-sm hover:shadow"
+                                                                    className="text-nafra-text-muted hover:text-alquid-blue p-2 rounded-lg hover:bg-nafra-surface border border-transparent hover:border-nafra-border transition-all"
                                                                     title="Descargar"
                                                                 >
                                                                     <Download size={18} />
@@ -845,7 +856,7 @@ const Repository: React.FC = () => {
                                                                                 }
                                                                             }
                                                                         }}
-                                                                        className="text-gray-400 hover:text-red-500 p-2 rounded-lg hover:bg-white border border-transparent hover:border-gray-200 transition-all shadow-sm hover:shadow"
+                                                                        className="text-nafra-text-muted hover:text-red-400 p-2 rounded-lg hover:bg-nafra-surface border border-transparent hover:border-nafra-border transition-all"
                                                                         title="Eliminar Versión"
                                                                     >
                                                                         <Trash2 size={18} />
@@ -906,7 +917,7 @@ const Repository: React.FC = () => {
                                             value={versionComment}
                                             onChange={(e) => setVersionComment(e.target.value)}
                                             placeholder="Detalla qué cambios incluye esta subida..."
-                                            className="w-full p-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-alquid-blue focus:border-transparent text-sm min-h-[100px] bg-white resize-none shadow-inner"
+                                            className="w-full p-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-alquid-blue focus:border-transparent text-sm text-gray-900 min-h-[100px] bg-white resize-none shadow-inner placeholder-gray-400"
                                         />
                                     </div>
                                 </div>

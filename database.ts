@@ -38,6 +38,16 @@ db.exec(`
     uploaded_by TEXT,
     comment TEXT
   );
+
+  CREATE TABLE IF NOT EXISTS templates (
+    id TEXT PRIMARY KEY,
+    client TEXT NOT NULL,
+    geography TEXT,
+    name TEXT NOT NULL,
+    content TEXT NOT NULL,
+    uploaded_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    uploaded_by TEXT
+  );
 `);
 
 // --- MIGRATIONS ---
@@ -64,6 +74,43 @@ try {
   console.log("Migration: Added 'client' and 'geography' columns to repository_files");
 } catch (e: any) {
   // already exists or already migrated
+}
+
+// Migration: Renumber versions starting from 0 per (client, geography, env) ordered by upload date
+try {
+  const groups = db.prepare(`
+    SELECT DISTINCT client, geography, env
+    FROM repository_files
+  `).all() as { client: string, geography: string | null, env: string }[];
+
+  const updateVersion = db.prepare('UPDATE repository_files SET version = ? WHERE id = ?');
+  const getOrdered = db.prepare(`
+    SELECT id FROM repository_files
+    WHERE client = ? AND geography IS ? AND env = ?
+    ORDER BY uploaded_at ASC, id ASC
+  `);
+
+  const runMigration = db.transaction(() => {
+    for (const g of groups) {
+      const rows = getOrdered.all(g.client, g.geography, g.env) as { id: string }[];
+      rows.forEach((row, idx) => {
+        updateVersion.run(idx, row.id);
+      });
+    }
+  });
+
+  runMigration();
+  console.log("Migration: Versions renumbered starting from 0 per (client, geography, env)");
+} catch (e: any) {
+  console.error("Migration error (version renumber):", e.message);
+}
+
+// Migration: Add geography column to templates
+try {
+  db.exec("ALTER TABLE templates ADD COLUMN geography TEXT");
+  console.log("Migration: Added 'geography' column to templates");
+} catch (e: any) {
+  // already exists
 }
 
 // Seed initial admin user if not exists
@@ -94,7 +141,7 @@ export const queries = {
   `),
   getRepoFiles: db.prepare('SELECT * FROM repository_files WHERE client = ? AND geography IS ? AND env = ? ORDER BY uploaded_at DESC, version DESC'),
   getRepoFileById: db.prepare('SELECT id FROM repository_files WHERE id = ?'),
-  getLatestVersion: db.prepare('SELECT MAX(version) as maxV FROM repository_files WHERE client = ? AND geography IS ? AND env = ? AND filename = ?'),
+  getLatestVersion: db.prepare('SELECT MAX(version) as maxV FROM repository_files WHERE client = ? AND geography IS ? AND env = ?'),
   getRepoSummary: db.prepare(`
     SELECT
       client,
@@ -106,4 +153,10 @@ export const queries = {
     ORDER BY client, geography, env
   `),
   deleteRepoFile: db.prepare('DELETE FROM repository_files WHERE id = ?'),
+
+  addTemplate: db.prepare('INSERT INTO templates (id, client, geography, name, content, uploaded_by) VALUES (?, ?, ?, ?, ?, ?)'),
+  getTemplates: db.prepare('SELECT * FROM templates WHERE client = ? AND geography IS ? ORDER BY uploaded_at DESC'),
+  getAllTemplates: db.prepare('SELECT * FROM templates ORDER BY client, geography, uploaded_at DESC'),
+  deleteTemplate: db.prepare('DELETE FROM templates WHERE id = ?'),
+  getTemplateById: db.prepare('SELECT * FROM templates WHERE id = ?'),
 };

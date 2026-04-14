@@ -11,10 +11,10 @@ interface JsonValidationModalProps {
 }
 
 const SEVERITY_CONFIG: Record<ValidationSeverity, { label: string; color: string; bg: string; border: string; icon: React.ReactNode }> = {
-    CRITICAL: { label: 'Crítico', color: 'text-red-700', bg: 'bg-red-50', border: 'border-red-200', icon: <XCircle size={14} /> },
-    ERROR: { label: 'Error', color: 'text-orange-700', bg: 'bg-orange-50', border: 'border-orange-200', icon: <AlertTriangle size={14} /> },
-    WARNING: { label: 'Aviso', color: 'text-yellow-700', bg: 'bg-yellow-50', border: 'border-yellow-200', icon: <AlertCircle size={14} /> },
-    INFO: { label: 'Info', color: 'text-blue-700', bg: 'bg-blue-50', border: 'border-blue-200', icon: <Info size={14} /> },
+    CRITICAL: { label: 'Crítico', color: 'text-red-300', bg: 'bg-red-500/10', border: 'border-red-500/30', icon: <XCircle size={14} /> },
+    ERROR: { label: 'Error', color: 'text-orange-300', bg: 'bg-orange-500/10', border: 'border-orange-500/30', icon: <AlertTriangle size={14} /> },
+    WARNING: { label: 'Aviso', color: 'text-amber-100', bg: 'bg-amber-500/18', border: 'border-amber-400/50', icon: <AlertCircle size={14} /> },
+    INFO: { label: 'Info', color: 'text-cyan-100', bg: 'bg-cyan-500/18', border: 'border-cyan-400/50', icon: <Info size={14} /> },
 };
 
 const JsonValidationModal: React.FC<JsonValidationModalProps> = ({ isOpen, results, fileName, onClose, onProceed }) => {
@@ -29,25 +29,25 @@ const JsonValidationModal: React.FC<JsonValidationModalProps> = ({ isOpen, resul
 
     return (
         <div className="fixed inset-0 z-[70] bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
-            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-3xl h-[80vh] flex flex-col animate-fade-in border border-red-200">
+            <div className="bg-nafra-card text-nafra-text rounded-2xl shadow-2xl w-full max-w-3xl h-[80vh] flex flex-col animate-fade-in border border-nafra-border">
                 {/* Header */}
-                <div className="bg-gradient-to-r from-red-50 to-orange-50 p-6 border-b border-red-100 flex items-center justify-between rounded-t-2xl">
+                <div className="bg-nafra-surface p-6 border-b border-nafra-border flex items-center justify-between rounded-t-2xl">
                     <div className="flex items-center gap-4">
-                        <div className="p-3 bg-red-100 text-red-600 rounded-full">
-                            <ShieldAlert size={24} />
+                        <div className="h-10 w-10 flex items-center justify-center bg-red-500/15 text-red-300 rounded-xl border border-red-500/30">
+                            <ShieldAlert size={20} />
                         </div>
                         <div>
-                            <h3 className="text-xl font-bold text-gray-800">Validación de Archivo</h3>
-                            <p className="text-sm text-gray-500 mt-1 font-mono">{fileName}</p>
+                            <h3 className="text-xl font-bold text-nafra-text">Validación de Archivo</h3>
+                            <p className="text-sm text-nafra-text-muted mt-1 font-mono">{fileName}</p>
                         </div>
                     </div>
-                    <button onClick={onClose} className="text-gray-400 hover:text-gray-600">
+                    <button onClick={onClose} className="h-10 w-10 flex items-center justify-center rounded-lg text-nafra-text-muted hover:text-nafra-text hover:bg-nafra-card transition-colors duration-150 ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-nafra-accent/40">
                         <X size={24} />
                     </button>
                 </div>
 
                 {/* Summary Counters */}
-                <div className="px-6 py-3 bg-white border-b border-gray-100 flex items-center gap-3 flex-wrap">
+                <div className="px-6 py-3 bg-nafra-card border-b border-nafra-border flex items-center gap-3 flex-wrap">
                     {(['CRITICAL', 'ERROR', 'WARNING', 'INFO'] as ValidationSeverity[]).map(sev => {
                         if (counts[sev] === 0) return null;
                         const cfg = SEVERITY_CONFIG[sev];
@@ -58,13 +58,13 @@ const JsonValidationModal: React.FC<JsonValidationModalProps> = ({ isOpen, resul
                             </span>
                         );
                     })}
-                    <span className="ml-auto text-[10px] font-bold text-gray-400 uppercase tracking-widest">
+                    <span className="ml-auto text-[10px] font-bold text-nafra-text-muted uppercase tracking-widest">
                         {results.length} problemas detectados
                     </span>
                 </div>
 
                 {/* Results Body */}
-                <div className="flex-1 overflow-y-auto p-6 bg-gray-50 space-y-4">
+                <div className="flex-1 overflow-y-auto p-6 bg-nafra-bg space-y-4">
                     {(['CRITICAL', 'ERROR', 'WARNING', 'INFO'] as ValidationSeverity[]).map(sev => {
                         if (grouped[sev].length === 0) return null;
                         const cfg = SEVERITY_CONFIG[sev];
@@ -83,12 +83,12 @@ const JsonValidationModal: React.FC<JsonValidationModalProps> = ({ isOpen, resul
                                             <div className="flex-1 min-w-0">
                                                 <div className="flex items-center gap-2 mb-1 flex-wrap">
                                                     {r.reportName !== '-' && (
-                                                        <span className="text-[10px] font-bold text-gray-500 bg-white px-1.5 py-0.5 rounded border border-gray-200">
+                                                        <span className="text-[10px] font-bold text-nafra-text-muted bg-nafra-surface px-1.5 py-0.5 rounded border border-nafra-border">
                                                             {r.reportName}
                                                         </span>
                                                     )}
                                                     {r.filename !== '-' && (
-                                                        <span className="text-[10px] font-mono text-gray-400">
+                                                        <span className="text-[10px] font-mono text-nafra-text-muted">
                                                             → {r.filename}
                                                         </span>
                                                     )}
@@ -96,7 +96,7 @@ const JsonValidationModal: React.FC<JsonValidationModalProps> = ({ isOpen, resul
                                                         {r.rule}
                                                     </span>
                                                 </div>
-                                                <p className="text-sm text-gray-700">{r.message}</p>
+                                                <p className="text-sm text-nafra-text">{r.message}</p>
                                             </div>
                                         </div>
                                     ))}
@@ -107,23 +107,23 @@ const JsonValidationModal: React.FC<JsonValidationModalProps> = ({ isOpen, resul
                 </div>
 
                 {/* Footer */}
-                <div className="p-4 border-t border-gray-200 bg-white flex justify-between items-center gap-3 rounded-b-2xl shadow-[0_-4px_10px_rgba(0,0,0,0.02)]">
-                    <button onClick={onClose} className="px-5 py-2.5 text-gray-500 hover:bg-gray-100 rounded-xl font-bold text-sm transition-colors">
-                        Descartar Archivo
+                <div className="p-4 border-t border-nafra-border bg-nafra-surface flex justify-between items-center gap-3 rounded-b-2xl shadow-[0_-4px_10px_rgba(0,0,0,0.10)]">
+                    <button onClick={onClose} className="h-10 px-5 text-nafra-text-muted hover:bg-nafra-card rounded-xl font-bold text-sm transition-colors duration-150 ease-out border border-transparent hover:border-nafra-border focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-nafra-accent/40">
+                        Descartar archivo
                     </button>
 
                     {hasCritical ? (
-                        <div className="flex items-center gap-2 text-red-600 text-xs font-bold">
+                        <div className="flex items-center gap-2 text-red-300 text-xs font-bold bg-red-500/10 border border-red-500/30 px-3 py-1.5 rounded-lg">
                             <XCircle size={16} />
                             Errores críticos — no se puede continuar
                         </div>
                     ) : (
                         <button
                             onClick={onProceed}
-                            className="px-6 py-2.5 bg-alquid-navy hover:bg-alquid-blue text-white rounded-xl font-bold text-sm shadow-lg flex items-center gap-2 transition-all active:scale-95"
+                            className="h-10 px-6 bg-nafra-accent hover:bg-nafra-accent-dim text-white rounded-xl font-bold text-sm shadow-lg shadow-nafra-accent/20 flex items-center gap-2 transition-all duration-150 ease-out active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-nafra-accent/50"
                         >
                             <CheckCircle2 size={16} />
-                            Continuar de todas formas
+                            Continuar con archivo
                         </button>
                     )}
                 </div>

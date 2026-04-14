@@ -1,9 +1,9 @@
-import React, { useState, useMemo, useRef, useEffect } from 'react';
-import { Save, FileJson, Edit3, X, Upload, Plus, Database, Maximize2, Minimize2, Wand2, SlidersHorizontal, Trash2, ChevronDown, Download, FileCode, FolderInput, FileText, Check, CheckCircle, AlertCircle, Filter, Search } from 'lucide-react';
+﻿import React, { useState, useMemo, useRef, useEffect } from 'react';
+import { Save, FileJson, Edit3, X, Upload, Plus, Database, Maximize2, Minimize2, Wand2, SlidersHorizontal, Trash2, ChevronDown, Download, FileCode, FolderInput, FileText, Check, CheckCircle, AlertCircle, Filter, Search, ArrowRight, ArrowLeft, MapPin, Globe, Building2, RefreshCw, Link, Unlink, BookOpen, LibraryBig } from 'lucide-react';
 import Editor from 'react-simple-code-editor';
 import PageHeader from '../components/PageHeader';
 import { useGlobalState } from '../context/GlobalStateContext';
-import { QueryDefinition, QueryParam, ReportDefinition } from '../types';
+import { QueryDefinition, QueryParam, ReportDefinition, Client, Geography, Environment, CLIENT_GEOGRAPHIES } from '../types';
 import { formatSqlBonito } from '../utils/sqlFormatter';
 import RepositoryExplorerModal from '../components/RepositoryExplorerModal';
 
@@ -24,6 +24,19 @@ interface RenameModalState {
     currentValue: string;
     folderValue?: string; // For file rename (folder separation)
 }
+
+const normalizeJsonFileName = (fileName: string): string => {
+    const trimmed = (fileName || 'queries.json').trim();
+    const sanitized = trimmed.replace(/[<>:"/\\|?*]+/g, '_');
+    return sanitized.toLowerCase().endsWith('.json') ? sanitized : `${sanitized}.json`;
+};
+
+const writeJsonFile = async (directoryHandle: any, fileName: string, content: string) => {
+    const fileHandle = await directoryHandle.getFileHandle(fileName, { create: true });
+    const writable = await fileHandle.createWritable();
+    await writable.write(content);
+    await writable.close();
+};
 
 const JsonEditor: React.FC = () => {
     const { editorReports, setEditorReports, clearEditorReports, addLog } = useGlobalState();
@@ -81,10 +94,13 @@ const JsonEditor: React.FC = () => {
     const importSqlInputRef = useRef<HTMLInputElement>(null);
     const jsonFileInputRef = useRef<HTMLInputElement>(null);
     const addSqlToJsonRef = useRef<HTMLInputElement>(null);
+    const sqlFolderInputRef = useRef<HTMLInputElement>(null);
 
 
     // Estado para el modal de exploración de repositorio
     const [isRepoExplorerOpen, setIsRepoExplorerOpen] = useState(false);
+    const [repoExplorerMode, setRepoExplorerMode] = useState<'load' | 'template'>('load');
+    const [sqlImportTemplate, setSqlImportTemplate] = useState<{ data: ReportDefinition[] | null; fileName: string | null }>({ data: null, fileName: null });
 
     // Estado para el modal de añadir SQL al JSON
     const [addSqlModal, setAddSqlModal] = useState<{
@@ -97,16 +113,30 @@ const JsonEditor: React.FC = () => {
         filename: string;
     }>({ isOpen: false, sql: '', database: '', schema: '', table: '', reportName: '', filename: '' });
 
+    useEffect(() => {
+        if (!sqlFolderInputRef.current) return;
+        sqlFolderInputRef.current.setAttribute('webkitdirectory', '');
+        sqlFolderInputRef.current.setAttribute('directory', '');
+    }, []);
+
     // Handler for selecting a file from the repository
     const handleSelectRepoFile = (file: any) => {
         if (!file) return;
-        let json;
         try {
-            json = typeof file.content === 'string' ? JSON.parse(file.content) : file.content;
-            setEditorReports(json, file.fileName);
+            const json = typeof file.content === 'string' ? JSON.parse(file.content) : file.content;
+            if (repoExplorerMode === 'template') {
+                if (!Array.isArray(json)) {
+                    alert('La plantilla seleccionada no tiene formato de lista de reportes.');
+                    return;
+                }
+                setSqlImportTemplate({ data: json as ReportDefinition[], fileName: file.fileName || null });
+                addLog('EDITOR', 'PLANTILLA_SQL', `Plantilla seleccionada: ${file.fileName}`, 'SUCCESS');
+            } else {
+                setEditorReports(json, file.fileName);
+                setModifiedIndices(new Set());
+                addLog('EDITOR', 'CARGA_ARCHIVO', `JSON cargado desde repositorio: ${file.fileName}`, 'SUCCESS');
+            }
             setIsRepoExplorerOpen(false);
-            setModifiedIndices(new Set());
-            addLog('EDITOR', 'CARGA_ARCHIVO', `JSON cargado desde repositorio: ${file.fileName}`, 'SUCCESS');
         } catch (e: any) {
             addLog('EDITOR', 'ERROR', `Error de sintaxis JSON (repositorio): ${file.fileName}`, 'ERROR');
             alert('Archivo JSON inválido (repositorio).');
@@ -135,22 +165,51 @@ const JsonEditor: React.FC = () => {
     };
 
 
-    // Stub for reformatSql to avoid error
-    const reformatSql = () => {};
+    const reformatSql = () => {
+        if (!editingItem) return;
+        const formattedSql = formatSqlBonito(editingItem.data.sql || '');
+        setEditingItem({
+            ...editingItem,
+            data: { ...editingItem.data, sql: formattedSql }
+        });
+        setModifiedIndices(new Set([...modifiedIndices, `${editingItem.reportIndex}-${editingItem.queryIndex}`]));
+        addLog('EDITOR', 'FORMATEAR_SQL', `SQL formateado: ${editingItem.data.filename || 'nueva_query.sql'}`, 'INFO');
+    };
 
     // Handler for saving JSON (download)
-    const handleSaveJson = () => {
+    const handleSaveJson = async () => {
         if (!editorReports.data) return;
-        const blob = new Blob([JSON.stringify(editorReports.data, null, 2)], { type: 'application/json' });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = editorReports.fileName || 'queries.json';
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        URL.revokeObjectURL(url);
-        addLog('EDITOR', 'DESCARGA_JSON', `JSON descargado: ${editorReports.fileName || 'queries.json'}`, 'SUCCESS');
+        const content = JSON.stringify(editorReports.data, null, 2);
+        const fileName = normalizeJsonFileName(editorReports.fileName || 'queries.json');
+
+        try {
+            const pickerWindow = window as any;
+            if (typeof pickerWindow.showDirectoryPicker !== 'function') {
+                throw new Error('DIRECTORY_PICKER_NOT_SUPPORTED');
+            }
+
+            const directoryHandle = await pickerWindow.showDirectoryPicker({ mode: 'readwrite' });
+            await writeJsonFile(directoryHandle, fileName, content);
+            addLog('EDITOR', 'DESCARGA_JSON', `JSON guardado en carpeta seleccionada: ${fileName}`, 'SUCCESS');
+            alert(`JSON guardado correctamente como ${fileName}.`);
+        } catch (error: any) {
+            if (error?.name === 'AbortError') {
+                addLog('EDITOR', 'DESCARGA_JSON_CANCELADA', 'Selección de carpeta cancelada por el usuario', 'INFO');
+                return;
+            }
+
+            const blob = new Blob([content], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = fileName;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+            addLog('EDITOR', 'DESCARGA_JSON', `JSON descargado: ${fileName}`, 'SUCCESS');
+            alert('Tu navegador no permite elegir carpeta directamente. Se ha realizado la descarga normal del archivo JSON.');
+        }
     };
 
     // TableHeader stub for now (should be imported if exists)
@@ -237,7 +296,14 @@ const JsonEditor: React.FC = () => {
 
     const openEditor = (reportIndex: number, queryIndex: number) => {
         const q = editorReports.data[reportIndex].queries[queryIndex];
-        setEditingItem({ reportIndex, queryIndex, data: { ...q } });
+        setEditingItem({
+            reportIndex,
+            queryIndex,
+            data: {
+                ...q,
+                sql: formatSqlBonito(q.sql || '')
+            }
+        });
         setIsNewQueryMode(false);
     };
 
@@ -272,6 +338,240 @@ const JsonEditor: React.FC = () => {
     };
 
     // --- HANDLERS FOR ADDING SQL TO JSON ---
+    const extractSqlSource = (content: string) => {
+        let db = '';
+        let schema = '';
+        let table = '';
+        let modifiedSql = content;
+
+        const normalizeSqlNewlines = (sql: string) => {
+            let normalized = (sql || '').replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+
+            // Recover SQL text that came with literal newline tokens ("\\n" or "/n").
+            // We only do this when there are no real newlines to avoid altering valid SQL content.
+            if (!normalized.includes('\n')) {
+                const literalBackslashNCount = (normalized.match(/\\n/g) || []).length;
+                const literalSlashNCount = (normalized.match(/\/n/g) || []).length;
+
+                if (literalBackslashNCount >= 2 || literalSlashNCount >= 2) {
+                    normalized = normalized.replace(/\\n/g, '\n').replace(/\/n/g, '\n');
+                }
+            }
+
+            return normalized;
+        };
+
+        modifiedSql = normalizeSqlNewlines(modifiedSql);
+
+        const normalizeLoadIdFilter = (sql: string) =>
+            sql.replace(/(\b(?:[a-zA-Z0-9_]+\.)?load_id\b)\s*=\s*'[^']*'/gi, '$1=:load_id');
+
+        const threePartMatch = content.match(/FROM\s+`?([a-zA-Z0-9_\-]+)`?\.`?([a-zA-Z0-9_]+)`?\.`?([a-zA-Z0-9_]+)`?/i);
+        const twoPartMatch = content.match(/FROM\s+`?([a-zA-Z0-9_]+)`?\.`?([a-zA-Z0-9_]+)`?/i);
+
+        if (threePartMatch) {
+            db = threePartMatch[2];
+            schema = threePartMatch[2];
+            table = threePartMatch[3];
+            modifiedSql = content.replace(threePartMatch[0], 'FROM %s.%s');
+        } else if (twoPartMatch) {
+            db = twoPartMatch[1];
+            schema = twoPartMatch[1];
+            table = twoPartMatch[2];
+            modifiedSql = content.replace(twoPartMatch[0], 'FROM %s.%s');
+        }
+
+        modifiedSql = normalizeLoadIdFilter(modifiedSql);
+
+        return { db, schema, table, modifiedSql };
+    };
+
+    const extractSqlMetadata = (content: string) => {
+        let report = '';
+        let archivo = '';
+
+        const headerLines = content.split(/\r?\n/).slice(0, 40);
+        for (const rawLine of headerLines) {
+            const line = rawLine.trim();
+            if (!line.startsWith('--')) continue;
+
+            const normalized = line.replace(/^--\s*/, '');
+            const separatorIndex = normalized.indexOf(':');
+            if (separatorIndex === -1) continue;
+
+            const key = normalized.slice(0, separatorIndex).trim().toLowerCase();
+            const value = normalized.slice(separatorIndex + 1).trim();
+
+            if (!report && (key === 'reporte' || key === 'report')) report = value;
+            if (!archivo && (key === 'archivo' || key === 'file')) archivo = value;
+        }
+
+        return {
+            report,
+            archivo: archivo.replace(/\\/g, '/').replace(/\.sql$/i, '')
+        };
+    };
+
+    const mergeWithTemplate = (template: ReportDefinition[], importedReports: ReportDefinition[]) => {
+        const merged = JSON.parse(JSON.stringify(template)) as ReportDefinition[];
+
+        const normalizeValue = (value: string) =>
+            (value || '')
+                .toLowerCase()
+                .normalize('NFD')
+                .replace(/[\u0300-\u036f]/g, '')
+                .replace(/\\/g, '/')
+                .replace(/\.sql$/i, '');
+
+        const normalizeIdentifier = (value: string) => normalizeValue(value).replace(/[^a-z0-9/]/g, '');
+        const normalizeBasename = (value: string) => {
+            const normalized = normalizeValue(value);
+            const last = normalized.split('/').filter(Boolean).pop() || normalized;
+            return last.replace(/[^a-z0-9]/g, '');
+        };
+
+        const reportIndexMap = new Map<string, number>();
+        const exactQueryIndexMap = new Map<string, { reportIndex: number; queryIndex: number }>();
+        const baseQueryIndexMap = new Map<string, { reportIndex: number; queryIndex: number }>();
+
+        merged.forEach((r, reportIndex) => {
+            reportIndexMap.set(normalizeIdentifier(r.report || ''), reportIndex);
+            (r.queries || []).forEach((q, queryIndex) => {
+                const exactKey = normalizeIdentifier(q.filename || '');
+                const baseKey = normalizeBasename(q.filename || '');
+                if (exactKey) exactQueryIndexMap.set(exactKey, { reportIndex, queryIndex });
+                if (baseKey) baseQueryIndexMap.set(baseKey, { reportIndex, queryIndex });
+            });
+        });
+
+        const defaultReportIndex = 0;
+        const defaultFolder = (merged[defaultReportIndex]?.queries || [])
+            .map(q => (q.filename || '').replace(/\\/g, '/'))
+            .find(name => name.includes('/'))
+            ?.split('/')[0] || '';
+
+        for (const importedReport of importedReports) {
+            for (const importedQuery of importedReport.queries || []) {
+                const importedFilename = importedQuery.filename || '';
+                const exactKey = normalizeIdentifier(importedFilename);
+                const baseKey = normalizeBasename(importedFilename);
+                const matched = (exactKey && exactQueryIndexMap.get(exactKey)) || (baseKey && baseQueryIndexMap.get(baseKey));
+
+                if (matched) {
+                    const existingQuery = merged[matched.reportIndex].queries[matched.queryIndex];
+                    merged[matched.reportIndex].queries[matched.queryIndex] = {
+                        ...existingQuery,
+                        sql: importedQuery.sql,
+                        database: importedQuery.database,
+                        schema: importedQuery.schema,
+                        table: importedQuery.table,
+                        // Keep template filename to preserve folder structure/canonical naming.
+                        filename: existingQuery.filename,
+                        parameters: existingQuery.parameters || importedQuery.parameters || {}
+                    };
+                    continue;
+                }
+
+                const hintedReportIndex = reportIndexMap.get(normalizeIdentifier(importedReport.report || ''));
+                const targetReportIndex = hintedReportIndex ?? defaultReportIndex;
+                const targetReport = merged[targetReportIndex];
+
+                let resolvedFilename = importedFilename;
+                if (!resolvedFilename.includes('/') && defaultFolder) {
+                    resolvedFilename = `${defaultFolder}/${resolvedFilename}`;
+                }
+
+                const newQuery: QueryDefinition = {
+                    ...importedQuery,
+                    filename: resolvedFilename,
+                    parameters: importedQuery.parameters || {}
+                };
+                targetReport.queries.push(newQuery);
+
+                const newQueryIndex = targetReport.queries.length - 1;
+                const newExactKey = normalizeIdentifier(resolvedFilename);
+                const newBaseKey = normalizeBasename(resolvedFilename);
+                if (newExactKey) exactQueryIndexMap.set(newExactKey, { reportIndex: targetReportIndex, queryIndex: newQueryIndex });
+                if (newBaseKey) baseQueryIndexMap.set(newBaseKey, { reportIndex: targetReportIndex, queryIndex: newQueryIndex });
+            }
+        }
+
+        return merged;
+    };
+
+    const handleImportSqlFolderToJson = async (e: React.ChangeEvent<HTMLInputElement>) => {
+        const files = e.target.files ? (Array.from(e.target.files) as File[]) : [];
+        e.target.value = '';
+
+        if (files.length === 0) return;
+
+        const sqlFiles = files.filter((file: File) => file.name.toLowerCase().endsWith('.sql'));
+        if (sqlFiles.length === 0) {
+            alert('La carpeta no contiene archivos .sql.');
+            addLog('EDITOR', 'IMPORTAR_CARPETA_SQL', 'No se encontraron .sql en la carpeta seleccionada', 'WARNING');
+            return;
+        }
+
+        try {
+            const reportsMap = new Map<string, QueryDefinition[]>();
+            const firstRelativePath = (sqlFiles[0] as any).webkitRelativePath || sqlFiles[0].name;
+            const rootFolderName = firstRelativePath.split('/')[0] || 'queries';
+
+            for (const file of sqlFiles) {
+                const content = await file.text();
+                const { db, schema, table, modifiedSql } = extractSqlSource(content);
+                const { report: sqlReport, archivo: sqlArchivo } = extractSqlMetadata(content);
+                const relativePath = ((file as any).webkitRelativePath || file.name).replace(/\\/g, '/');
+                const parts = relativePath.split('/').filter(Boolean);
+                const relativeWithoutRoot = parts.length > 1 ? parts.slice(1) : [file.name];
+
+                const fallbackReport = relativeWithoutRoot.length > 1 ? relativeWithoutRoot[0] : 'General';
+                const fallbackFilename = (relativeWithoutRoot.length > 2 ? relativeWithoutRoot.slice(1).join('/') : relativeWithoutRoot[relativeWithoutRoot.length - 1])
+                    .replace(/\.sql$/i, '');
+
+                const reportName = sqlReport || fallbackReport;
+                const filenamePath = sqlArchivo || fallbackFilename;
+
+                const query: QueryDefinition = {
+                    filename: filenamePath,
+                    sql: formatSqlBonito(modifiedSql),
+                    database: db,
+                    schema,
+                    table,
+                    parameters: {}
+                };
+
+                if (!reportsMap.has(reportName)) {
+                    reportsMap.set(reportName, []);
+                }
+                reportsMap.get(reportName)?.push(query);
+            }
+
+            const generatedReports: ReportDefinition[] = Array.from(reportsMap.entries())
+                .sort(([a], [b]) => a.localeCompare(b))
+                .map(([report, queries]) => ({
+                    report,
+                    queries: queries.sort((q1, q2) => q1.filename.localeCompare(q2.filename))
+                }));
+
+            const useTemplate = Array.isArray(sqlImportTemplate.data) && sqlImportTemplate.data.length > 0;
+            const finalReports = useTemplate ? mergeWithTemplate(sqlImportTemplate.data as ReportDefinition[], generatedReports) : generatedReports;
+            const generatedFileName = normalizeJsonFileName(
+                useTemplate
+                    ? (sqlImportTemplate.fileName || `${rootFolderName}_queries.json`)
+                    : `${rootFolderName}_queries.json`
+            );
+
+            setEditorReports(finalReports, generatedFileName);
+            setModifiedIndices(new Set());
+            addLog('EDITOR', 'IMPORTAR_CARPETA_SQL', `Generado JSON desde carpeta con ${sqlFiles.length} SQL${useTemplate ? ` usando plantilla ${sqlImportTemplate.fileName}` : ''}`, 'SUCCESS');
+            alert(`JSON generado con ${sqlFiles.length} consultas SQL${useTemplate ? ' usando plantilla de configuración' : ''}.`);
+        } catch (error: any) {
+            addLog('EDITOR', 'ERROR', `Error importando carpeta SQL: ${error?.message || 'desconocido'}`, 'ERROR');
+            alert('No se pudo procesar la carpeta SQL.');
+        }
+    };
+
     const handleAddSqlToJson = (e: React.ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0];
         if (!file) return;
@@ -279,22 +579,7 @@ const JsonEditor: React.FC = () => {
         const reader = new FileReader();
         reader.onload = (event) => {
             const content = event.target?.result as string;
-            let db = '';
-            let schema = '';
-            let table = '';
-            let modifiedSql = content;
-            const threePartMatch = content.match(/FROM\s+([a-zA-Z0-9_\-]+)\.([a-zA-Z0-9_]+)\.([a-zA-Z0-9_]+)/i);
-            const twoPartMatch = content.match(/FROM\s+([a-zA-Z0-9_]+)\.([a-zA-Z0-9_]+)/i);
-            if (threePartMatch) {
-                db = threePartMatch[1];
-                schema = threePartMatch[2];
-                table = threePartMatch[3];
-                modifiedSql = content.replace(threePartMatch[0], `FROM %s.%s`);
-            } else if (twoPartMatch) {
-                schema = twoPartMatch[1];
-                table = twoPartMatch[2];
-                modifiedSql = content.replace(twoPartMatch[0], `FROM %s.%s`);
-            }
+            const { db, schema, table, modifiedSql } = extractSqlSource(content);
             const nameWithoutExt = file.name.replace(/\.[^/.]+$/, '');
             setAddSqlModal({
                 isOpen: true,
@@ -347,28 +632,14 @@ const JsonEditor: React.FC = () => {
             const content = event.target?.result as string;
 
             // --- AUTO-DETECT DB/SCHEMA/TABLE ---
-            let db = editingItem.data.database;
-            let schema = editingItem.data.schema;
-            let table = editingItem.data.table;
-            let modifiedContent = content;
+            const detected = extractSqlSource(content);
+            const db = detected.db || editingItem.data.database;
+            const schema = detected.schema || editingItem.data.schema;
+            const table = detected.table || editingItem.data.table;
+            const modifiedContent = detected.modifiedSql;
 
-            // Regex patterns to find FROM clause
-            // Allow hyphens in the first part (Database/Project) to support BigQuery/GCP naming conventions
-            const threePartMatch = content.match(/FROM\s+([a-zA-Z0-9_\-]+)\.([a-zA-Z0-9_]+)\.([a-zA-Z0-9_]+)/i);
-            const twoPartMatch = content.match(/FROM\s+([a-zA-Z0-9_]+)\.([a-zA-Z0-9_]+)/i);
-
-            if (threePartMatch) {
-                db = threePartMatch[1];
-                schema = threePartMatch[2];
-                table = threePartMatch[3];
-                // Replace with standard placeholder
-                modifiedContent = content.replace(threePartMatch[0], `FROM %s.%s`);
+            if (detected.schema && detected.table) {
                 addLog('EDITOR', 'AUTO_DETECT', `Detectado DB: ${db}, Schema: ${schema}, Table: ${table}`, 'INFO');
-            } else if (twoPartMatch) {
-                schema = twoPartMatch[1];
-                table = twoPartMatch[2];
-                modifiedContent = content.replace(twoPartMatch[0], `FROM %s.%s`);
-                addLog('EDITOR', 'AUTO_DETECT', `Detectado Schema: ${schema}, Table: ${table}`, 'INFO');
             }
 
             const formattedSql = formatSqlBonito(modifiedContent);
@@ -477,463 +748,806 @@ const JsonEditor: React.FC = () => {
 
 
 
+    // â”€â”€â”€ WIZARD STATE â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    
+    // PAGE VIEW
+    const [pageView, setPageView] = useState<'wizard' | 'templates'>('wizard');
+
+    // TEMPLATE LIBRARY STATE
+    type StoredTemplate = { id: string; client: string; geography: string | null; name: string; content: string; uploaded_at: string };
+    const [libraryClient, setLibraryClient] = useState<Client | ''>('');
+    const [libraryGeography, setLibraryGeography] = useState<string>('');
+    const [libraryTemplates, setLibraryTemplates] = useState<StoredTemplate[]>([]);
+    const [libraryLoading, setLibraryLoading] = useState(false);
+    const libraryUploadRef = useRef<HTMLInputElement>(null);
+
+    const geographiesForLibraryClient: Geography[] | null = libraryClient ? CLIENT_GEOGRAPHIES[libraryClient as Client] : null;
+
+    const fetchLibraryTemplates = async (client: Client | '', geography: string) => {
+        if (!client) { setLibraryTemplates([]); return; }
+        // For clients with geographies, require geography selection
+        const clientGeos = CLIENT_GEOGRAPHIES[client as Client];
+        if (clientGeos && !geography) { setLibraryTemplates([]); return; }
+        setLibraryLoading(true);
+        try {
+            const geoParam = geography || 'null';
+            const res = await fetch(`/api/templates?client=${encodeURIComponent(client)}&geography=${encodeURIComponent(geoParam)}`);
+            const data = await res.json();
+            setLibraryTemplates(Array.isArray(data) ? data : []);
+        } catch { setLibraryTemplates([]); }
+        setLibraryLoading(false);
+    };
+
+    const handleLibraryClientChange = (c: Client) => {
+        setLibraryClient(c);
+        setLibraryGeography('');
+        setLibraryTemplates([]);
+        const clientGeos = CLIENT_GEOGRAPHIES[c];
+        if (!clientGeos) fetchLibraryTemplates(c, '');
+    };
+
+    const handleLibraryGeographyChange = (geo: string) => {
+        setLibraryGeography(geo);
+        fetchLibraryTemplates(libraryClient, geo);
+    };
+
+    const handleLibraryUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0];
+        if (!file || !libraryClient) return;
+        const reader = new FileReader();
+        reader.onload = async (event) => {
+            try {
+                const json = JSON.parse(event.target?.result as string);
+                const res = await fetch('/api/templates', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ client: libraryClient, geography: libraryGeography || null, name: file.name, content: json, uploadedBy: 'user' })
+                });
+                if (!res.ok) throw new Error(await res.text());
+                const geoLabel = libraryGeography ? ` (${libraryGeography})` : '';
+                addLog('EDITOR', 'PLANTILLA_SUBIDA', `Plantilla subida: ${file.name} para ${libraryClient}${geoLabel}`, 'SUCCESS');
+                fetchLibraryTemplates(libraryClient, libraryGeography);
+            } catch (err: any) {
+                alert('Error al subir la plantilla: ' + err.message);
+            }
+        };
+        reader.readAsText(file);
+        e.target.value = '';
+    };
+
+    const handleLibraryDelete = async (id: string, name: string) => {
+        if (!confirm(`Eliminar plantilla "${name}"?`)) return;
+        await fetch(`/api/templates/${encodeURIComponent(id)}`, { method: 'DELETE' });
+        addLog('EDITOR', 'PLANTILLA_ELIMINADA', `Plantilla eliminada: ${name}`, 'INFO');
+        fetchLibraryTemplates(libraryClient, libraryGeography);
+    };
+
+    const handleLibrarySelect = (tpl: StoredTemplate) => {
+        try {
+            const json = typeof tpl.content === 'string' ? JSON.parse(tpl.content) : tpl.content;
+            if (!Array.isArray(json)) { alert('La plantilla no tiene formato de lista de reportes.'); return; }
+            setSqlImportTemplate({ data: json as ReportDefinition[], fileName: tpl.name });
+            setTemplateLoaded(true);
+            setTemplateName(tpl.name);
+            setPageView('wizard');
+            setWizardStep(2);
+            addLog('EDITOR', 'PLANTILLA_SELECCIONADA', `Plantilla seleccionada desde biblioteca: ${tpl.name}`, 'SUCCESS');
+        } catch { alert('Error al cargar la plantilla.'); }
+    };
+
+    // WIZARD STATE
+    const [wizardStep, setWizardStep] = useState<1 | 2 | 3 | 4>(1);
+    const [selectedClient, setSelectedClient] = useState<Client | ''>('');
+    const [selectedGeography, setSelectedGeography] = useState<string>('');
+    const [selectedEnv, setSelectedEnv] = useState<Environment | ''>('');
+
+    // Step 2: template
+    const [templateLoaded, setTemplateLoaded] = useState<boolean>(false);
+    const [templateName, setTemplateName] = useState<string>('');
+    const templateLocalInputRef = useRef<HTMLInputElement>(null);
+
+    // Step 3: SQL folder + mapping
+    type MappingRow = {
+        sqlFile: string;         // original SQL filename (without ext)
+        sqlContent: string;      // parsed SQL
+        sqlDatabase: string;
+        sqlSchema: string;
+        sqlTable: string;
+        reportHint: string;      // from SQL metadata
+        filenameHint: string;    // from SQL metadata
+        jsonEntry: string;       // matched/selected JSON entry filename
+        reportEntry: string;     // matched/selected JSON report name
+        matched: boolean;
+        availableEntries: { label: string; report: string; filename: string }[];
+    };
+    const [mappingRows, setMappingRows] = useState<MappingRow[]>([]);
+    const [generatedResult, setGeneratedResult] = useState<ReportDefinition[] | null>(null);
+    const wizardSqlFolderRef = useRef<HTMLInputElement>(null);
+
+    useEffect(() => {
+        if (!wizardSqlFolderRef.current) return;
+        wizardSqlFolderRef.current.setAttribute('webkitdirectory', '');
+        wizardSqlFolderRef.current.setAttribute('directory', '');
+    }, []);
+
+    const geographiesForClient: Geography[] | null = selectedClient ? CLIENT_GEOGRAPHIES[selectedClient as Client] : null;
+
+    const handleWizardTemplateLocal = (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = (event) => {
+            try {
+                const json = JSON.parse(event.target?.result as string);
+                if (!Array.isArray(json)) { alert('La plantilla no tiene formato de lista de reportes.'); return; }
+                setSqlImportTemplate({ data: json as ReportDefinition[], fileName: file.name });
+                setTemplateLoaded(true);
+                setTemplateName(file.name);
+                addLog('EDITOR', 'PLANTILLA_SQL', `Plantilla cargada: ${file.name}`, 'SUCCESS');
+            } catch { alert('Archivo JSON inválido.'); }
+        };
+        reader.readAsText(file);
+        e.target.value = '';
+    };
+
+    const handleWizardTemplateRepo = (file: any) => {
+        if (!file) return;
+        try {
+            const json = typeof file.content === 'string' ? JSON.parse(file.content) : file.content;
+            if (!Array.isArray(json)) { alert('La plantilla seleccionada no tiene formato de lista de reportes.'); return; }
+            setSqlImportTemplate({ data: json as ReportDefinition[], fileName: file.fileName || null });
+            setTemplateLoaded(true);
+            setTemplateName(file.fileName || 'plantilla');
+            setIsRepoExplorerOpen(false);
+            addLog('EDITOR', 'PLANTILLA_SQL', `Plantilla seleccionada: ${file.fileName}`, 'SUCCESS');
+        } catch { alert('Archivo JSON inválido (repositorio).'); }
+    };
+
+    const handleWizardSqlFolder = async (e: React.ChangeEvent<HTMLInputElement>) => {
+        const files = e.target.files ? Array.from(e.target.files) as File[] : [];
+        e.target.value = '';
+        const sqlFiles = files.filter(f => f.name.toLowerCase().endsWith('.sql'));
+        if (sqlFiles.length === 0) { alert('La carpeta no contiene archivos .sql.'); return; }
+
+        // Build all available JSON entries from template
+        const templateEntries: { label: string; report: string; filename: string }[] = [];
+        if (Array.isArray(sqlImportTemplate.data)) {
+            for (const r of sqlImportTemplate.data) {
+                for (const q of r.queries || []) {
+                    templateEntries.push({ label: `${r.report} / ${q.filename}`, report: r.report, filename: q.filename });
+                }
+            }
+        }
+
+        const normalizeForMatch = (v: string) =>
+            (v || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/\\/g, '/').replace(/\.sql$/i, '').replace(/[^a-z0-9/]/g, '');
+        const basenameOf = (v: string) => {
+            const parts = normalizeForMatch(v).split('/').filter(Boolean);
+            return parts[parts.length - 1] || normalizeForMatch(v);
+        };
+
+        const rows: MappingRow[] = [];
+        for (const file of sqlFiles) {
+            const content = await file.text();
+            const { db, schema, table, modifiedSql } = extractSqlSource(content);
+            const { report: sqlReport, archivo: sqlArchivo } = extractSqlMetadata(content);
+            const baseNameNoExt = file.name.replace(/\.sql$/i, '');
+
+            // Try to find match in template
+            const needle = normalizeForMatch(sqlArchivo || baseNameNoExt);
+            const needleBase = basenameOf(sqlArchivo || baseNameNoExt);
+            let matchedEntry = templateEntries.find(e => normalizeForMatch(e.filename) === needle);
+            if (!matchedEntry) matchedEntry = templateEntries.find(e => basenameOf(e.filename) === needleBase);
+
+            rows.push({
+                sqlFile: baseNameNoExt,
+                sqlContent: formatSqlBonito(modifiedSql),
+                sqlDatabase: db,
+                sqlSchema: schema,
+                sqlTable: table,
+                reportHint: sqlReport || '',
+                filenameHint: sqlArchivo || baseNameNoExt,
+                jsonEntry: matchedEntry ? matchedEntry.filename : '',
+                reportEntry: matchedEntry ? matchedEntry.report : (sqlReport || ''),
+                matched: !!matchedEntry,
+                availableEntries: templateEntries,
+            });
+        }
+
+        setMappingRows(rows);
+    };
+
+    const handleGenerateJson = () => {
+        const useTemplate = Array.isArray(sqlImportTemplate.data) && sqlImportTemplate.data.length > 0;
+        if (!useTemplate) {
+            // No template: just build from SQL rows
+            const reportsMap = new Map<string, QueryDefinition[]>();
+            for (const row of mappingRows) {
+                const report = row.reportEntry || 'General';
+                const query: QueryDefinition = {
+                    filename: row.filenameHint || row.sqlFile,
+                    sql: row.sqlContent,
+                    database: row.sqlDatabase,
+                    schema: row.sqlSchema,
+                    table: row.sqlTable,
+                    parameters: {}
+                };
+                if (!reportsMap.has(report)) reportsMap.set(report, []);
+                reportsMap.get(report)!.push(query);
+            }
+            const result: ReportDefinition[] = Array.from(reportsMap.entries()).map(([report, queries]) => ({ report, queries }));
+            setGeneratedResult(result);
+            const geoSuffix = selectedGeography && selectedGeography !== 'general' ? `_${selectedGeography.toLowerCase()}` : '';
+            setEditorReports(result, `${(selectedClient || 'queries').toLowerCase().replace(/\s+/g, '_')}${geoSuffix}_${(selectedEnv || '').toLowerCase()}.json`);
+        } else {
+            // With template: apply mapped SQL
+            const merged = JSON.parse(JSON.stringify(sqlImportTemplate.data)) as ReportDefinition[];
+            for (const row of mappingRows) {
+                if (row.jsonEntry) {
+                    // Find in merged and update sql/db/schema/table
+                    for (const r of merged) {
+                        for (const q of r.queries || []) {
+                            if (q.filename === row.jsonEntry) {
+                                q.sql = row.sqlContent;
+                                q.database = row.sqlDatabase;
+                                q.schema = row.sqlSchema;
+                                q.table = row.sqlTable;
+                            }
+                        }
+                    }
+                } else {
+                    // Unmatched: add as new query to the report
+                    const report = row.reportEntry || 'General';
+                    let rEntry = merged.find(r => r.report === report);
+                    if (!rEntry) { rEntry = { report, queries: [] }; merged.push(rEntry); }
+                    rEntry.queries.push({
+                        filename: row.filenameHint || row.sqlFile,
+                        sql: row.sqlContent,
+                        database: row.sqlDatabase,
+                        schema: row.sqlSchema,
+                        table: row.sqlTable,
+                        parameters: {}
+                    });
+                }
+            }
+            setGeneratedResult(merged);
+            const geoSuffix = selectedGeography && selectedGeography !== 'general' ? `_${selectedGeography.toLowerCase()}` : '';
+            setEditorReports(merged, `${(selectedClient || 'queries').toLowerCase().replace(/\s+/g, '_')}${geoSuffix}_${(selectedEnv || '').toLowerCase()}.json`);
+        }
+        setWizardStep(4);
+        addLog('EDITOR', 'GENERAR_JSON', `JSON generado: ${selectedClient} ${selectedGeography} ${selectedEnv} – ${mappingRows.length} consultas`, 'SUCCESS');
+    };
+
+    const totalQueries = (generatedResult || []).reduce((acc, r) => acc + (r.queries?.length || 0), 0);
+
+    const handleWizardDownload = () => {
+        if (!generatedResult) return;
+        const geoSuffix = selectedGeography && selectedGeography !== 'general' ? `_${selectedGeography.toLowerCase()}` : '';
+        const fileName = normalizeJsonFileName(`${(selectedClient || 'queries').toLowerCase().replace(/\s+/g, '_')}${geoSuffix}_${(selectedEnv || '').toLowerCase()}`);
+        const content = JSON.stringify(generatedResult, null, 2);
+        const blob = new Blob([content], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = fileName;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+        addLog('EDITOR', 'DESCARGA_JSON', `JSON descargado: ${fileName}`, 'SUCCESS');
+    };
+
+    const handleUploadToRepo = async () => {
+        if (!generatedResult || !selectedClient || !selectedEnv) return;
+        const geoSuffix = selectedGeography && selectedGeography !== 'general' ? `_${selectedGeography.toLowerCase()}` : '';
+        const fileName = normalizeJsonFileName(`${(selectedClient).toLowerCase().replace(/\s+/g, '_')}${geoSuffix}_${selectedEnv.toLowerCase()}`);
+        const content = JSON.stringify(generatedResult, null, 2);
+        const geoParam = selectedGeography && selectedGeography !== 'general' ? selectedGeography : 'general';
+        try {
+            const res = await fetch('/api/repository/upload', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    client: selectedClient,
+                    geography: geoParam,
+                    env: selectedEnv,
+                    fileName,
+                    content,
+                    comment: `Generado desde wizard – ${mappingRows.length} consultas SQL`,
+                    uploadedBy: 'editor'
+                })
+            });
+            if (!res.ok) throw new Error(await res.text());
+            addLog('EDITOR', 'SUBIR_REPO', `JSON subido al repositorio: ${fileName}`, 'SUCCESS');
+            alert(`JSON subido al repositorio correctamente como ${fileName}.`);
+        } catch (err: any) {
+            addLog('EDITOR', 'ERROR', `Error subiendo al repositorio: ${err.message}`, 'ERROR');
+            alert('Error al subir al repositorio.');
+        }
+    };
+
+    const resetWizard = () => {
+        setWizardStep(1);
+        setSelectedClient('');
+        setSelectedGeography('');
+        setSelectedEnv('');
+        setTemplateLoaded(false);
+        setTemplateName('');
+        setSqlImportTemplate({ data: null, fileName: null });
+        setMappingRows([]);
+        setGeneratedResult(null);
+    };
+
+    const CLIENTS: Client[] = ['Banca March', 'Bankinter', 'BBVA', 'Pichincha'];
+
+    // â”€â”€â”€ WIZARD STEP INDICATOR â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    const StepIndicator = () => (
+        <div className="flex items-center gap-0 mb-8">
+            {[
+                { n: 1, label: 'Entorno' },
+                { n: 2, label: 'Plantilla' },
+                { n: 3, label: 'SQL y Mapeo' },
+                { n: 4, label: 'Resultado' },
+            ].map((s, i, arr) => (
+                <React.Fragment key={s.n}>
+                    <div className="flex flex-col items-center">
+                        <div className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold border-2 transition-all ${wizardStep === s.n ? 'bg-nafra-accent border-nafra-accent text-white' : wizardStep > s.n ? 'bg-emerald-500 border-emerald-500 text-white' : 'bg-nafra-surface border-nafra-border text-nafra-text-muted'}`}>
+                            {wizardStep > s.n ? <Check size={14} /> : s.n}
+                        </div>
+                        <span className={`text-[10px] mt-1 font-medium ${wizardStep === s.n ? 'text-nafra-accent' : wizardStep > s.n ? 'text-emerald-400' : 'text-nafra-text-muted'}`}>{s.label}</span>
+                    </div>
+                    {i < arr.length - 1 && (
+                        <div className={`flex-1 h-0.5 mx-2 mb-4 transition-all ${wizardStep > s.n ? 'bg-emerald-500' : 'bg-nafra-border'}`} />
+                    )}
+                </React.Fragment>
+            ))}
+        </div>
+    );
+
     return (
         <div className="h-full flex flex-col animate-fade-in w-full relative">
-            <PageHeader title="Editor JSON" subtitle="Mantenimiento y limpieza del archivo de configuración" icon={<FileJson size={20} />} />
+            <PageHeader title="Creacion JSON" subtitle="Genera archivos de configuracion de consultas a partir de carpetas SQL" icon={<FileJson size={20} />} />
             <RepositoryExplorerModal
                 isOpen={isRepoExplorerOpen}
                 onClose={() => setIsRepoExplorerOpen(false)}
-                onSelect={handleSelectRepoFile}
+                onSelect={repoExplorerMode === 'template' ? handleWizardTemplateRepo : handleSelectRepoFile}
             />
+            {/* Hidden inputs */}
+            <input ref={templateLocalInputRef} type="file" accept=".json" className="hidden" onChange={handleWizardTemplateLocal} />
+            <input ref={wizardSqlFolderRef} type="file" multiple accept=".sql" className="hidden" onChange={handleWizardSqlFolder} />
+            <input ref={libraryUploadRef} type="file" accept=".json" className="hidden" onChange={handleLibraryUpload} />
 
-            {/* ADD SQL TO JSON MODAL */}
-            {addSqlModal.isOpen && (
-                <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4">
-                    <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg animate-fade-in border border-gray-200 flex flex-col overflow-hidden">
-                        <div className="bg-alquid-navy p-5 text-white flex justify-between items-center">
-                            <h3 className="font-bold flex items-center gap-2"><FileCode size={18} /> Añadir SQL como informe</h3>
-                            <button onClick={() => setAddSqlModal({ ...addSqlModal, isOpen: false })} className="hover:bg-white/20 p-1 rounded"><X size={20} /></button>
-                        </div>
-                        <div className="p-6 space-y-4 overflow-y-auto">
-                            <div>
-                                <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Reporte</label>
-                                <input
-                                    type="text"
-                                    value={addSqlModal.reportName}
-                                    onChange={e => setAddSqlModal({ ...addSqlModal, reportName: e.target.value })}
-                                    list="add-sql-reports-list"
-                                    className="w-full border border-gray-300 bg-white text-gray-900 rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-alquid-blue outline-none"
-                                    placeholder="Nombre del reporte (existente o nuevo)"
-                                    autoFocus
-                                />
-                                <datalist id="add-sql-reports-list">
-                                    {(Array.isArray(editorReports.data) ? editorReports.data : []).map((r: any) => <option key={r.report} value={r.report} />)}
-                                </datalist>
-                            </div>
-                            <div>
-                                <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Nombre del archivo / informe</label>
-                                <input
-                                    type="text"
-                                    value={addSqlModal.filename}
-                                    onChange={e => setAddSqlModal({ ...addSqlModal, filename: e.target.value })}
-                                    className="w-full border border-gray-300 bg-white text-gray-900 rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-alquid-blue outline-none"
-                                    placeholder="carpeta/nombre_archivo"
-                                />
-                                <p className="text-[10px] text-gray-400 mt-1">Puedes usar carpeta/nombre para organizar en subcarpetas.</p>
-                            </div>
-                            <div className="grid grid-cols-3 gap-3">
-                                <div>
-                                    <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Database</label>
-                                    <input type="text" value={addSqlModal.database} onChange={e => setAddSqlModal({ ...addSqlModal, database: e.target.value })} className="w-full border border-gray-300 rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-alquid-blue outline-none bg-white" />
-                                </div>
-                                <div>
-                                    <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Schema</label>
-                                    <input type="text" value={addSqlModal.schema} onChange={e => setAddSqlModal({ ...addSqlModal, schema: e.target.value })} className="w-full border border-gray-300 rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-alquid-blue outline-none bg-white" />
-                                </div>
-                                <div>
-                                    <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Tabla</label>
-                                    <input type="text" value={addSqlModal.table} onChange={e => setAddSqlModal({ ...addSqlModal, table: e.target.value })} className="w-full border border-gray-300 rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-alquid-blue outline-none bg-white" />
-                                </div>
-                            </div>
-                            {(addSqlModal.database || addSqlModal.schema || addSqlModal.table) && (
-                                <p className="text-xs text-emerald-600 bg-emerald-50 border border-emerald-200 rounded-lg px-3 py-2 flex items-center gap-2">
-                                    <Check size={14} /> Datos autodetectados del FROM. Puedes editarlos.
-                                </p>
-                            )}
-                        </div>
-                        <div className="p-4 bg-gray-50 border-t border-gray-200 flex justify-end gap-3">
-                            <button onClick={() => setAddSqlModal({ ...addSqlModal, isOpen: false })} className="px-4 py-2 text-gray-600 font-bold hover:bg-gray-200 rounded-lg text-sm">Cancelar</button>
-                            <button
-                                onClick={confirmAddSqlToJson}
-                                disabled={!addSqlModal.reportName.trim() || !addSqlModal.filename.trim()}
-                                className="px-6 py-2 bg-alquid-navy text-white font-bold rounded-lg hover:bg-blue-900 transition-colors shadow text-sm flex items-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed"
-                            >
-                                <Plus size={16} /> Añadir al JSON
-                            </button>
-                        </div>
-                    </div>
-                </div>
-            )}
+            {/* TAB BAR */}
+            <div className="flex items-center gap-2 px-4 pt-4 pb-2">
+                <button
+                    onClick={() => setPageView('wizard')}
+                    className={`px-4 py-2 rounded-xl text-sm font-semibold flex items-center gap-2 transition-all border ${
+                        pageView === 'wizard'
+                            ? 'bg-nafra-accent/10 border-nafra-accent text-nafra-accent'
+                            : 'bg-nafra-surface border-nafra-border text-nafra-text-dim hover:text-nafra-text hover:bg-nafra-card-hover'
+                    }`}
+                >
+                    <FileJson size={16} /> Asistente de creacion
+                </button>
+                <button
+                    onClick={() => setPageView('templates')}
+                    className={`px-4 py-2 rounded-xl text-sm font-semibold flex items-center gap-2 transition-all border ${
+                        pageView === 'templates'
+                            ? 'bg-nafra-accent/10 border-nafra-accent text-nafra-accent'
+                            : 'bg-nafra-surface border-nafra-border text-nafra-text-dim hover:text-nafra-text hover:bg-nafra-card-hover'
+                    }`}
+                >
+                    <LibraryBig size={16} /> Biblioteca de Plantillas
+                </button>
+            </div>
 
-            {/* RENAME MODAL */}
-            {renameModal.isOpen && (
-                <div className="fixed inset-0 z-50 bg-black/40 backdrop-blur-[1px] flex items-center justify-center p-4">
-                    <div className="bg-white rounded-xl shadow-2xl w-full max-w-md animate-fade-in border border-gray-200">
-                        <div className="p-5">
-                            <h3 className="text-lg font-bold text-gray-800 mb-4">
-                                {renameModal.type === 'REPORT' ? 'Renombrar Reporte' : 'Renombrar Archivo'}
-                            </h3>
-
-                            {renameModal.type === 'FILE' && (
-                                <div className="mb-3">
-                                    <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Carpeta</label>
-                                    <div className="flex items-center gap-2 border border-gray-300 rounded-lg px-3 py-2 bg-gray-50">
-                                        <FolderInput size={16} className="text-gray-400" />
-                                        <input
-                                            type="text"
-                                            value={renameModal.folderValue}
-                                            onChange={(e) => setRenameModal({ ...renameModal, folderValue: e.target.value })}
-                                            className="w-full bg-transparent outline-none text-sm text-gray-700"
-                                            placeholder="Sin carpeta"
-                                        />
-                                    </div>
-                                </div>
-                            )}
+            {/* TEMPLATE LIBRARY VIEW */}
+            {pageView === 'templates' && (
+                <div className="flex-1 overflow-y-auto py-6 px-4 flex flex-col items-center">
+                    <div className="w-full max-w-3xl">
+                        <div className="bg-nafra-card border border-nafra-border rounded-2xl p-8 shadow-premium animate-fade-in">
+                            <h2 className="text-lg font-bold text-nafra-text mb-1 flex items-center gap-2">
+                                <LibraryBig size={20} className="text-nafra-accent" /> Biblioteca de Plantillas
+                            </h2>
+                            <p className="text-sm text-nafra-text-dim mb-6">
+                                Gestiona las plantillas JSON por cliente. Usa el boton <strong>Usar</strong> para cargarla directamente en el asistente.
+                            </p>
 
                             <div className="mb-6">
-                                <label className="block text-xs font-bold text-gray-500 uppercase mb-1">
-                                    {renameModal.type === 'REPORT' ? 'Nombre del Reporte' : 'Nombre del Archivo'}
-                                </label>
-                                <div className="flex items-center gap-2 border border-gray-300 rounded-lg px-3 py-2 focus-within:ring-2 focus-within:ring-alquid-blue transition-all bg-white">
-                                    {renameModal.type === 'REPORT' ? <FileJson size={16} className="text-gray-400" /> : <FileText size={16} className="text-gray-400" />}
-                                    <input
-                                        type="text"
-                                        value={renameModal.currentValue}
-                                        onChange={(e) => setRenameModal({ ...renameModal, currentValue: e.target.value })}
-                                        className="w-full bg-transparent outline-none text-sm font-medium"
-                                        autoFocus
-                                    />
+                                <label className="block text-xs font-bold text-nafra-text-muted uppercase mb-2">Cliente</label>
+                                <div className="grid grid-cols-2 gap-3">
+                                    {CLIENTS.map(c => (
+                                        <button key={c} onClick={() => handleLibraryClientChange(c)}
+                                            className={`py-3 px-4 rounded-xl border text-sm font-semibold text-left transition-all ${
+                                                libraryClient === c
+                                                    ? 'bg-nafra-accent/10 border-nafra-accent text-nafra-accent'
+                                                    : 'bg-nafra-surface border-nafra-border text-nafra-text hover:bg-nafra-card-hover'
+                                            }`}>
+                                            {c}
+                                        </button>
+                                    ))}
                                 </div>
                             </div>
 
-                            <div className="flex justify-end gap-3">
-                                <button onClick={() => setRenameModal({ ...renameModal, isOpen: false })} className="px-4 py-2 text-gray-500 hover:bg-gray-100 rounded-lg text-sm font-medium">Cancelar</button>
-                                <button onClick={applyRename} className="px-4 py-2 bg-alquid-blue text-white rounded-lg text-sm font-bold shadow hover:bg-blue-600">Guardar</button>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            )}
-
-            {/* EDITOR MODAL */}
-            {editingItem && (
-                <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-0 md:p-4">
-                    <div className={`bg-white shadow-2xl flex flex-col overflow-hidden transition-all duration-300 relative ${isFullscreen ? 'w-full h-full rounded-none' : 'w-[95vw] h-[90vh] md:max-w-6xl rounded-2xl border border-gray-200'}`}>
-                        {paramModal.isOpen && (
-                            <div className="absolute inset-0 z-[60] bg-black/30 backdrop-blur-[2px] flex items-center justify-center p-4">
-                                <div className="bg-white rounded-xl shadow-2xl w-full max-w-md overflow-hidden flex flex-col max-h-[90%] animate-fade-in border border-gray-200">
-                                    <div className="bg-alquid-navy p-4 text-white flex justify-between items-center shrink-0">
-                                        <h3 className="font-bold flex items-center gap-2">
-                                            {paramModal.originalKey ? <Edit3 size={16} /> : <Plus size={16} />}
-                                            {paramModal.originalKey ? 'Editar Parámetro' : 'Nuevo Parámetro'}
-                                        </h3>
-                                        <button onClick={() => setParamModal({ ...paramModal, isOpen: false })} className="hover:bg-white/20 p-1 rounded"><X size={20} /></button>
-                                    </div>
-                                    <div className="p-6 overflow-y-auto flex-1 space-y-6">
-                                        <div>
-                                            <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Nombre del Parámetro (Key)</label>
-                                            <div className="flex items-center gap-2 bg-white border border-gray-300 rounded-lg px-3 py-2 focus-within:ring-2 focus-within:ring-alquid-blue focus-within:border-alquid-blue transition-all">
-                                                <span className="text-gray-400 font-mono font-bold">:</span>
-                                                <input type="text" value={paramModal.key} onChange={(e) => setParamModal({ ...paramModal, key: e.target.value })} placeholder="nombre_parametro" className="bg-transparent border-none outline-none w-full text-sm font-semibold text-gray-900 placeholder-gray-400" autoFocus />
-                                            </div>
-                                        </div>
-                                        <div>
-                                            <label className="block text-xs font-bold text-gray-500 uppercase mb-2">Valor (Texto o JSON)</label>
-                                            <textarea value={paramModal.value} onChange={(e) => setParamModal({ ...paramModal, value: e.target.value })} className="w-full h-32 bg-white border border-gray-300 rounded-lg px-3 py-2 text-sm text-gray-900 focus:ring-2 focus:ring-alquid-blue outline-none placeholder-gray-400 shadow-sm font-mono" placeholder='Ejemplo: "MiValor" o ["Item1", "Item2"]' />
-                                        </div>
-                                    </div>
-                                    <div className="p-4 bg-gray-50 border-t border-gray-200 flex justify-end gap-3 shrink-0">
-                                        <button onClick={() => setParamModal({ ...paramModal, isOpen: false })} className="px-4 py-2 text-gray-600 font-bold hover:bg-gray-200 rounded-lg transition-colors text-sm">Cancelar</button>
-                                        <button onClick={saveParamModal} className="px-6 py-2 bg-alquid-blue text-white font-bold rounded-lg hover:bg-blue-600 transition-colors shadow-lg text-sm flex items-center gap-2"><Check size={16} /> Guardar Parámetro</button>
+                            {libraryClient && geographiesForLibraryClient && (
+                                <div className="mb-6">
+                                    <label className="block text-xs font-bold text-nafra-text-muted uppercase mb-2">Geografia</label>
+                                    <div className="flex flex-wrap gap-3">
+                                        {geographiesForLibraryClient.map(g => (
+                                            <button key={g} onClick={() => handleLibraryGeographyChange(g)}
+                                                className={`py-2.5 px-4 rounded-xl border text-sm font-semibold transition-all ${
+                                                    libraryGeography === g
+                                                        ? 'bg-nafra-accent/10 border-nafra-accent text-nafra-accent'
+                                                        : 'bg-nafra-surface border-nafra-border text-nafra-text hover:bg-nafra-card-hover'
+                                                }`}>
+                                                {g}
+                                            </button>
+                                        ))}
                                     </div>
                                 </div>
-                            </div>
-                        )}
+                            )}
 
-                        <div className="bg-gray-50 border-b border-gray-200 px-6 py-4 flex justify-between items-center flex-shrink-0">
-                            <div className="flex items-center gap-4">
-                                <div className="bg-blue-100 p-2 rounded-lg text-alquid-blue"><Edit3 size={20} /></div>
+                            {libraryClient && (!geographiesForLibraryClient || libraryGeography) && (
+                                <button
+                                    onClick={() => libraryUploadRef.current?.click()}
+                                    className="mb-5 w-full py-2.5 px-4 bg-nafra-accent hover:bg-nafra-accent-dim text-white text-sm font-bold rounded-xl flex items-center justify-center gap-2 transition-all"
+                                >
+                                    <Upload size={16} /> Subir plantilla para {libraryClient}{libraryGeography ? ` · ${libraryGeography}` : ''}
+                                </button>
+                            )}
+
+                            {libraryClient && (!geographiesForLibraryClient || libraryGeography) && (
                                 <div>
-                                    <h3 className="text-lg font-bold text-gray-800">{isNewQueryMode ? "Crear Nueva Query" : "Editar Query"}</h3>
-                                    <p className="text-xs text-gray-500 font-mono">{isNewQueryMode ? "Nueva entrada" : editingItem.data.filename}</p>
-                                </div>
-                            </div>
-                            <div className="flex items-center gap-2">
-                                <button onClick={reformatSql} className="p-2 text-gray-500 hover:text-alquid-blue hover:bg-blue-50 rounded-lg transition-colors flex items-center gap-2 text-sm font-medium mr-2"><Wand2 size={16} /> <span className="hidden md:inline">Formatear</span></button>
-                                <button onClick={() => setIsFullscreen(!isFullscreen)} className="p-2 text-gray-400 hover:text-gray-700 hover:bg-gray-100 rounded-lg transition-colors">{isFullscreen ? <Minimize2 size={20} /> : <Maximize2 size={20} />}</button>
-                                <button onClick={() => setEditingItem(null)} className="p-2 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"><X size={24} /></button>
-                            </div>
-                        </div>
-
-                        <div className="flex-1 overflow-hidden flex flex-col md:flex-row">
-                            <div className="flex-1 flex flex-col h-full overflow-hidden border-r border-gray-200">
-                                <div className="bg-gray-100 px-4 py-2 border-b border-gray-200 flex justify-between items-center text-xs font-semibold text-gray-500 uppercase tracking-wider">
-                                    <span>Editor SQL</span>
-                                    <div className="flex items-center gap-2">
-                                        <input type="file" accept=".sql" ref={sqlInputRef} onChange={handleSqlFileUpload} className="hidden" />
-                                        <button onClick={() => sqlInputRef.current?.click()} className="text-alquid-blue hover:underline flex items-center gap-1 cursor-pointer"><Upload size={12} /> Cargar .SQL</button>
-                                    </div>
-                                </div>
-                                <div className="flex-1 overflow-auto bg-white relative">
-                                    <div className="absolute inset-0 min-h-full">
-                                        <Editor value={editingItem.data.sql} onValueChange={(code) => handleEditorChange('sql', code)} highlight={highlightSql} padding={24} className="font-mono text-sm leading-relaxed min-h-full" textareaClassName="focus:outline-none" style={{ fontFamily: '"Fira Code", "Menlo", "Monaco", "Consolas", monospace', fontSize: 14, backgroundColor: '#ffffff', minHeight: '100%' }} />
-                                    </div>
-                                </div>
-                            </div>
-
-                            <div className="w-full md:w-80 bg-gray-50 flex flex-col border-t md:border-t-0 h-[40vh] md:h-full flex-shrink-0 overflow-y-auto custom-scrollbar">
-                                <div className="p-6 space-y-6">
-                                    <h4 className="text-sm font-bold text-gray-800 border-b border-gray-200 pb-2 mb-4 flex items-center gap-2"><Database size={16} /> Configuración</h4>
-                                    {isNewQueryMode && (
-                                        <div className="space-y-4">
-                                            {/* Dedicated Upload Section */}
-                                            <div className="mb-2">
-                                                <label className="block text-xs font-bold text-gray-500 uppercase mb-2">Importar Definición (Opcional)</label>
-                                                <input type="file" accept=".sql" ref={importSqlInputRef} onChange={handleImportNewQuerySql} className="hidden" />
-
-                                                {!importedFileName ? (
-                                                    <div
-                                                        onClick={() => importSqlInputRef.current?.click()}
-                                                        className="border-2 border-dashed border-gray-300 rounded-xl p-4 flex flex-col items-center justify-center text-center cursor-pointer hover:border-alquid-blue hover:bg-blue-50 transition-all group"
-                                                    >
-                                                        <div className="bg-white p-2 rounded-full mb-2 shadow-sm group-hover:scale-110 transition-transform">
-                                                            <Upload size={20} className="text-gray-400 group-hover:text-alquid-blue" />
+                                    {libraryLoading ? (
+                                        <p className="text-sm text-nafra-text-muted text-center py-6">Cargando...</p>
+                                    ) : libraryTemplates.length === 0 ? (
+                                        <div className="border-2 border-dashed border-nafra-border rounded-xl py-10 flex flex-col items-center gap-2 text-nafra-text-muted">
+                                            <BookOpen size={28} />
+                                            <span className="text-sm">No hay plantillas para {libraryClient}{libraryGeography ? ` · ${libraryGeography}` : ''}</span>
+                                            <span className="text-xs">Sube la primera con el boton de arriba</span>
+                                        </div>
+                                    ) : (
+                                        <div className="space-y-2">
+                                            {libraryTemplates.map(tpl => (
+                                                <div key={tpl.id} className="flex items-center justify-between bg-nafra-surface border border-nafra-border rounded-xl px-4 py-3 hover:bg-nafra-card-hover transition-colors">
+                                                    <div className="flex items-center gap-3 min-w-0">
+                                                        <FileJson size={18} className="text-nafra-accent shrink-0" />
+                                                        <div className="min-w-0">
+                                                            <p className="text-sm font-semibold text-nafra-text truncate" title={tpl.name}>{tpl.name}</p>
+                                                            <p className="text-[10px] text-nafra-text-muted">
+                                                                {new Date(tpl.uploaded_at.replace(' ', 'T') + 'Z').toLocaleDateString('es-ES', { day: '2-digit', month: 'short', year: 'numeric' })}
+                                                            </p>
                                                         </div>
-                                                        <span className="text-xs font-bold text-gray-500 group-hover:text-alquid-blue">Cargar .SQL</span>
-                                                        <span className="text-[10px] text-gray-400 mt-1">Autodetecta DB y Tabla</span>
                                                     </div>
-                                                ) : (
-                                                    <div className="border border-green-200 bg-green-50 rounded-xl p-3 flex items-center justify-between">
-                                                        <div className="flex items-center gap-2 overflow-hidden">
-                                                            <div className="bg-white p-1 rounded-full text-green-600 shadow-sm shrink-0">
-                                                                <CheckCircle size={16} />
-                                                            </div>
-                                                            <div className="flex flex-col overflow-hidden">
-                                                                <span className="text-xs font-bold text-green-800 truncate" title={importedFileName}>{importedFileName}</span>
-                                                                <span className="text-[10px] text-green-600">Cargado con éxito</span>
-                                                            </div>
-                                                        </div>
-                                                        <button onClick={clearImportedFile} className="p-1.5 hover:bg-white rounded-lg text-gray-400 hover:text-red-500 transition-colors">
-                                                            <Trash2 size={16} />
+                                                    <div className="flex items-center gap-2 shrink-0">
+                                                        <button
+                                                            onClick={() => handleLibrarySelect(tpl)}
+                                                            className="px-3 py-1.5 bg-nafra-accent/10 border border-nafra-accent/30 text-nafra-accent text-xs font-bold rounded-lg hover:bg-nafra-accent/20 transition-all"
+                                                        >
+                                                            Usar
+                                                        </button>
+                                                        <button
+                                                            onClick={() => handleLibraryDelete(tpl.id, tpl.name)}
+                                                            className="p-1.5 text-nafra-text-muted hover:text-nafra-danger hover:bg-nafra-danger/10 rounded-lg transition-all"
+                                                        >
+                                                            <Trash2 size={14} />
                                                         </button>
                                                     </div>
-                                                )}
-                                            </div>
-                                            <hr className="border-gray-100" />
-                                            <div>
-                                                <label className="block text-xs font-bold text-gray-500 mb-1">Reporte</label>
-                                                <input type="text" value={newQueryReport} onChange={(e) => setNewQueryReport(e.target.value)} list="reports-list" className="w-full border border-gray-300 bg-white text-gray-900 rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-alquid-blue outline-none" placeholder="Nombre del reporte" />
-                                                <datalist id="reports-list">{(Array.isArray(editorReports.data) ? editorReports.data : []).map(r => <option key={r.report} value={r.report} />)}</datalist>
-                                            </div>
-                                            <div>
-                                                <label className="block text-xs font-bold text-gray-500 mb-1">Nombre Archivo</label>
-                                                <input type="text" value={newQueryFilename} onChange={(e) => setNewQueryFilename(e.target.value)} className="w-full border border-gray-300 bg-white text-gray-900 rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-alquid-blue outline-none" placeholder="carpeta/nombre_archivo" />
-                                            </div>
+                                                </div>
+                                            ))}
                                         </div>
                                     )}
-                                    <div className="space-y-4">
-                                        <div><label className="block text-xs font-bold text-gray-500 mb-1">Database</label><input type="text" value={editingItem.data.database} onChange={(e) => handleEditorChange('database', e.target.value)} className="w-full border border-gray-300 rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-alquid-blue outline-none bg-white" /></div>
-                                        <div><label className="block text-xs font-bold text-gray-500 mb-1">Schema</label><input type="text" value={editingItem.data.schema} onChange={(e) => handleEditorChange('schema', e.target.value)} className="w-full border border-gray-300 rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-alquid-blue outline-none bg-white" /></div>
-                                        <div><label className="block text-xs font-bold text-gray-500 mb-1">Table</label><input type="text" value={editingItem.data.table} onChange={(e) => handleEditorChange('table', e.target.value)} className="w-full border border-gray-300 rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-alquid-blue outline-none bg-white" /></div>
-                                    </div>
-                                    <div className="pt-4 border-t border-gray-200">
-                                        <div className="flex justify-between items-center mb-4">
-                                            <h4 className="text-sm font-bold text-gray-800 flex items-center gap-2"><SlidersHorizontal size={16} /> Parámetros <span className="text-xs text-gray-400 font-normal">({Object.keys(editingItem.data.parameters || {}).length})</span></h4>
-                                        </div>
-                                        {!showParams ? (
-                                            <button onClick={() => setShowParams(true)} className="w-full py-2.5 text-sm font-bold text-gray-600 bg-gray-100 hover:bg-gray-200 rounded-lg flex items-center justify-center gap-2 transition-all">Ver/Editar Parámetros <ChevronDown size={16} /></button>
-                                        ) : (
-                                            <div className="space-y-3 animate-fade-in">
-                                                {editingItem.data.parameters && Object.entries(editingItem.data.parameters).map(([key, paramObj]) => {
-                                                    const rawValue = (paramObj as QueryParam).value;
-                                                    const isComplex = typeof rawValue === 'object';
-                                                    return (
-                                                        <div key={key} className="bg-white p-3 rounded-lg border border-gray-200 shadow-sm flex items-center justify-between group hover:border-alquid-blue transition-all">
-                                                            <div className="flex-1 min-w-0 mr-3 overflow-hidden">
-                                                                <div className="flex items-center gap-2">
-                                                                    <span className={`w-2 h-2 rounded-full ${isComplex ? 'bg-alquid-blue' : 'bg-orange-400'}`}></span>
-                                                                    <span className="text-sm font-bold text-gray-700 font-mono truncate" title={key}>:{key}</span>
-                                                                </div>
-                                                            </div>
-                                                            <div className="flex items-center gap-1">
-                                                                <button onClick={() => openParamModal(key)} className="p-1.5 text-gray-400 hover:text-alquid-blue hover:bg-blue-50 rounded transition-colors" title="Editar"><Edit3 size={16} /></button>
-                                                                <button onClick={() => deleteParameter(key)} className="p-1.5 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded transition-colors" title="Eliminar"><Trash2 size={16} /></button>
-                                                            </div>
-                                                        </div>
-                                                    );
-                                                })}
-                                                <div className="flex gap-2">
-                                                    <button onClick={() => openParamModal()} className="flex-1 py-3 text-sm font-bold text-alquid-blue border border-dashed border-alquid-blue/30 bg-blue-50/30 hover:bg-blue-50 rounded-lg flex items-center justify-center gap-2 transition-all hover:border-alquid-blue group"><div className="bg-white p-1 rounded-full text-alquid-blue shadow-sm group-hover:scale-110 transition-transform"><Plus size={14} /></div>Añadir</button>
-                                                    <button onClick={() => setShowParams(false)} className="px-3 py-3 text-gray-500 bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors" title="Ocultar"><Minimize2 size={16} /></button>
-                                                </div>
-                                            </div>
-                                        )}
-                                    </div>
                                 </div>
-                            </div>
-                        </div>
-                        <div className="p-4 border-t border-gray-200 flex justify-end gap-3 bg-gray-50 flex-shrink-0">
-                            <button onClick={() => setEditingItem(null)} className="px-6 py-2.5 rounded-xl text-gray-600 hover:bg-gray-200 font-bold transition-colors">Cancelar</button>
-                            <button onClick={saveChanges} className="px-6 py-2.5 rounded-xl bg-alquid-blue text-white hover:bg-blue-800 font-bold shadow-lg transition-colors flex items-center gap-2"><Save size={18} /> {isNewQueryMode ? "Crear Query" : "Guardar Cambios"}</button>
+                            )}
                         </div>
                     </div>
                 </div>
             )}
 
-            <div className="flex flex-1 gap-6 h-full relative overflow-hidden mt-6">
+            {/* WIZARD VIEW */}
+            {pageView === 'wizard' && (
+            <div className="flex-1 overflow-y-auto py-8 px-4 flex flex-col items-center">
+                <div className="w-full max-w-3xl">
+                    <StepIndicator />
 
-                {/* Sidebar Configuration */}
-                <div className="bg-white border border-alquid-gray40 border-opacity-40 shadow-lg rounded-xl flex flex-col z-10 w-80">
-                    <div className="p-5 space-y-6 overflow-y-auto flex-1 custom-scrollbar">
-                        <div>
-                            <h4 className="text-sm font-bold text-gray-800 mb-3 flex items-center gap-2">
-                                <Database size={16} /> Archivos de Configuración
-                            </h4>
-                            <div className="flex flex-col gap-3">
-                                <button
-                                    onClick={() => jsonFileInputRef.current?.click()}
-                                    className="w-full py-3 bg-alquid-navy hover:bg-blue-900 text-white rounded-xl font-bold flex items-center justify-center gap-2 shadow-sm whitespace-nowrap transition-transform hover:-translate-y-0.5"
-                                >
-                                    <Upload size={18} /> Cargar desde local
-                                </button>
-                                <button
-                                    onClick={() => setIsRepoExplorerOpen(true)}
-                                    className="w-full py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold flex items-center justify-center gap-2 shadow-sm whitespace-nowrap transition-transform hover:-translate-y-0.5"
-                                >
-                                    <FileJson size={18} /> Cargar desde repositorio
-                                </button>
-                                <input
-                                    ref={jsonFileInputRef}
-                                    type="file"
-                                    accept=".json"
-                                    className="hidden"
-                                    onChange={e => {
-                                        const file = e.target.files?.[0];
-                                        if (!file) return;
-                                        const reader = new FileReader();
-                                        reader.onload = (event) => handleLoaded(event.target?.result as string, file.name);
-                                        reader.readAsText(file);
-                                        e.target.value = '';
-                                    }}
-                                />
-                            </div>
-                        </div>
-                        <hr className="border-alquid-gray40 border-opacity-40" />
-                        <div>
-                            <h4 className="text-sm font-bold text-gray-800 mb-3 flex items-center gap-2">
-                                <Plus size={16} /> Añadir al JSON cargado
-                            </h4>
-                            <div className="flex flex-col gap-3">
-                                <button
-                                    onClick={() => {
-                                        if (!editorReports.data) { alert('Primero carga un archivo JSON de configuración.'); return; }
-                                        addSqlToJsonRef.current?.click();
-                                    }}
-                                    className="w-full py-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-bold flex items-center justify-center gap-2 shadow-sm whitespace-nowrap transition-transform hover:-translate-y-0.5"
-                                >
-                                    <FileCode size={18} /> Añadir SQL como informe
-                                </button>
-                                <input
-                                    ref={addSqlToJsonRef}
-                                    type="file"
-                                    accept=".sql"
-                                    className="hidden"
-                                    onChange={handleAddSqlToJson}
-                                />
-                            </div>
-                        </div>
-                    </div>
-                </div>
+                    {/* â”€â”€ STEP 1: Entorno â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
+                    {wizardStep === 1 && (
+                        <div className="bg-nafra-card border border-nafra-border rounded-2xl p-8 shadow-premium animate-fade-in">
+                            <h2 className="text-lg font-bold text-nafra-text mb-1 flex items-center gap-2"><Building2 size={20} className="text-nafra-accent" /> Seleccionar Entorno</h2>
+                            <p className="text-sm text-nafra-text-dim mb-6">Elige el banco, la geografía (si aplica) y el entorno de destino.</p>
 
-                <div className="flex-1 flex flex-col overflow-hidden bg-white rounded-xl shadow-sm border border-gray-200">
-
-                    {/* Toolbar */}
-                    <div className="p-4 border-b border-alquid-gray40 border-opacity-40 flex justify-between items-center bg-alquid-gray10 rounded-t-xl flex-shrink-0 h-[72px]">
-                        <div className="flex items-center gap-2">
-                            <Filter size={18} className="text-gray-400" />
-                            <span className="font-bold text-gray-700">Queries ({modifiedIndices.size} editadas)</span>
-                            {Object.keys(filters).length > 0 && <span className="text-xs text-alquid-blue font-bold bg-blue-50 px-2 py-0.5 rounded-full border border-blue-100">Filtros Activos</span>}
-                        </div>
-                    </div>
-
-                    {/* Content Area */}
-                    <div className="flex-1 overflow-auto bg-gray-50">
-                        {(!editorReports.data || editorReports.data.length === 0) ? (
-                            <div className="h-full flex flex-col items-center justify-center text-gray-400 p-8 text-center animate-fade-in">
-                                <div className="w-20 h-20 bg-gray-50 rounded-full flex items-center justify-center mb-6 shadow-inner">
-                                    <Database size={40} className="text-gray-300" />
+                            <div className="space-y-5">
+                                <div>
+                                    <label className="block text-xs font-bold text-nafra-text-muted uppercase mb-2">Banco</label>
+                                    <div className="grid grid-cols-2 gap-3">
+                                        {CLIENTS.map(c => (
+                                            <button key={c} onClick={() => { setSelectedClient(c); setSelectedGeography(''); }}
+                                                className={`py-3 px-4 rounded-xl border text-sm font-semibold text-left transition-all ${selectedClient === c ? 'bg-nafra-accent/10 border-nafra-accent text-nafra-accent' : 'bg-nafra-surface border-nafra-border text-nafra-text hover:bg-nafra-card-hover'}`}>
+                                                {c}
+                                            </button>
+                                        ))}
+                                    </div>
                                 </div>
-                                <h3 className="text-lg font-bold text-gray-700 mb-2">Esperando configuración</h3>
-                                <p className="text-sm text-gray-500 max-w-xs leading-relaxed">
-                                    Carga un archivo JSON o comienza creando una nueva query.
-                                </p>
-                            </div>
-                        ) : (
-                            <table className="w-full text-left border-collapse relative">
-                                <thead className="bg-gray-100 sticky top-0 z-10 shadow-sm">
-                                    <tr>
-                                        <TableHeader label="Reporte" columnKey="report" width="w-[15%]" />
-                                        <TableHeader label="Carpeta" columnKey="folder" width="w-[10%]" />
-                                        <TableHeader label="Informe" columnKey="filenameOnly" width="w-[25%]" />
-                                        <TableHeader label="Base de datos" columnKey="database" width="w-[20%]" />
-                                        <TableHeader label="Tabla" columnKey="table" width="w-[20%]" />
-                                        <th className="py-3 px-4 text-center w-[100px] border-b border-gray-200">Acción</th>
-                                    </tr>
-                                </thead>
-                                <tbody className="bg-white divide-y divide-gray-100">
-                                    {filteredData.map((item, idx) => {
-                                        const isModified = modifiedIndices.has(`${item.reportIndex}-${item.queryIndex}`);
-                                        return (
-                                            <tr key={idx} className={`group hover:bg-blue-50/50 transition-colors relative ${isModified ? 'bg-yellow-50/30' : ''}`}>
-                                                <td className="py-3 px-4 text-sm relative align-top">
-                                                    <div className={`flex items-center justify-between pr-4 rounded p-1 ${item.isFirstOfReport ? 'group-hover:bg-blue-50/50' : ''}`}>
-                                                        <span className={`truncate ${item.isFirstOfReport ? 'font-bold text-gray-800' : 'text-gray-400 font-medium'}`}>
-                                                            {item.report}
-                                                        </span>
-                                                        {item.isFirstOfReport && (
-                                                            <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                                                                <button onClick={() => openRenameModal('REPORT', item.reportIndex, -1)} className="p-1 text-blue-500 hover:bg-blue-100 rounded" title="Renombrar Reporte"><Edit3 size={14} /></button>
-                                                                <button onClick={() => handleDeleteReport(item.reportIndex)} className="p-1 text-red-500 hover:bg-red-100 rounded" title="Eliminar Reporte Entero"><Trash2 size={14} /></button>
-                                                            </div>
-                                                        )}
-                                                    </div>
-                                                </td>
-                                                <td className="py-3 px-4 text-sm text-gray-500 align-top pt-3">
-                                                    {item.folder || '-'}
-                                                </td>
-                                                <td className="py-3 px-4 text-sm align-top pt-3">
-                                                    <div className="flex items-center justify-between group/cell">
-                                                        <div className="flex flex-col">
-                                                            <span className="font-semibold text-gray-800">{item.filenameOnly}</span>
-                                                            {isModified && <span className="text-[10px] text-yellow-600 font-bold mt-1">MODIFICADO</span>}
-                                                        </div>
-                                                        <button
-                                                            onClick={() => openRenameModal('FILE', item.reportIndex, item.queryIndex)}
-                                                            className="p-1.5 text-gray-300 hover:text-alquid-blue hover:bg-white rounded opacity-0 group-hover/cell:opacity-100 transition-all"
-                                                            title="Renombrar carpeta/archivo"
-                                                        >
-                                                            <Edit3 size={14} />
-                                                        </button>
-                                                    </div>
-                                                </td>
-                                                <td className="py-3 px-4 text-sm text-gray-600 align-top pt-3">{item.query.database}</td>
-                                                <td className="py-3 px-4 text-sm text-gray-600 font-mono align-top pt-3">{item.query.table}</td>
-                                                <td className="py-3 px-4 text-center align-top pt-3">
-                                                    <div className="flex justify-center gap-2">
-                                                        <button onClick={() => openEditor(item.reportIndex, item.queryIndex)} className="p-1.5 text-gray-400 hover:text-alquid-blue hover:bg-blue-50 rounded transition-colors" title="Editar Query Completa"><Edit3 size={16} /></button>
-                                                        <button onClick={() => handleDeleteQuery(item.reportIndex, item.queryIndex)} className="p-1.5 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded transition-colors" title="Eliminar Query"><Trash2 size={16} /></button>
-                                                    </div>
-                                                </td>
-                                            </tr>
-                                        );
-                                    })}
-                                    {filteredData.length === 0 && (
-                                        <tr>
-                                            <td colSpan={6} className="text-center py-8 text-gray-400 italic">
-                                                No hay resultados para los filtros seleccionados
-                                            </td>
-                                        </tr>
-                                    )}
-                                </tbody>
-                            </table>
-                        )}
-                    </div>
 
-                    <div className="p-4 border-t border-gray-200 bg-white z-10 flex-shrink-0">
-                        <button onClick={handleSaveJson} disabled={!editorReports.data || editorReports.data.length === 0} className={`w-full py-4 rounded-xl font-bold text-white shadow-lg flex justify-center items-center gap-3 transition-all transform active:scale-[0.99] ${!editorReports.data || editorReports.data.length === 0 ? 'bg-gray-300 cursor-not-allowed shadow-none' : 'bg-alquid-red hover:bg-red-600 hover:shadow-xl hover:-translate-y-0.5'}`}><Save size={20} /> DESCARGAR JSON ACTUALIZADO</button>
-                    </div>
+                                {selectedClient && geographiesForClient && (
+                                    <div>
+                                        <label className="block text-xs font-bold text-nafra-text-muted uppercase mb-2">Geografía</label>
+                                        <div className="flex flex-wrap gap-3">
+                                            {geographiesForClient.map(g => (
+                                                <button key={g} onClick={() => setSelectedGeography(g)}
+                                                    className={`py-2.5 px-4 rounded-xl border text-sm font-semibold transition-all ${selectedGeography === g ? 'bg-nafra-accent/10 border-nafra-accent text-nafra-accent' : 'bg-nafra-surface border-nafra-border text-nafra-text hover:bg-nafra-card-hover'}`}>
+                                                    {g}
+                                                </button>
+                                            ))}
+                                        </div>
+                                    </div>
+                                )}
+
+                                {selectedClient && (
+                                    <div>
+                                        <label className="block text-xs font-bold text-nafra-text-muted uppercase mb-2">Entorno</label>
+                                        <div className="flex gap-3">
+                                            {(['PRE', 'PRO'] as Environment[]).map(env => (
+                                                <button key={env} onClick={() => setSelectedEnv(env)}
+                                                    className={`py-2.5 px-6 rounded-xl border text-sm font-bold transition-all ${selectedEnv === env ? 'bg-nafra-accent/10 border-nafra-accent text-nafra-accent' : 'bg-nafra-surface border-nafra-border text-nafra-text hover:bg-nafra-card-hover'}`}>
+                                                    {env}
+                                                </button>
+                                            ))}
+                                        </div>
+                                    </div>
+                                )}
+                            </div>
+
+                            <div className="mt-8 flex justify-end">
+                                <button
+                                    disabled={!selectedClient || !selectedEnv || (!!geographiesForClient && !selectedGeography)}
+                                    onClick={() => setWizardStep(2)}
+                                    className="px-6 py-2.5 bg-nafra-accent hover:bg-nafra-accent-dim text-white font-bold rounded-xl flex items-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed transition-all"
+                                >
+                                    Siguiente <ArrowRight size={16} />
+                                </button>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* â”€â”€ STEP 2: Plantilla â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
+                    {wizardStep === 2 && (
+                        <div className="bg-nafra-card border border-nafra-border rounded-2xl p-8 shadow-premium animate-fade-in">
+                            <h2 className="text-lg font-bold text-nafra-text mb-1 flex items-center gap-2"><FileJson size={20} className="text-nafra-accent" /> Cargar Plantilla JSON</h2>
+                            <p className="text-sm text-nafra-text-dim mb-6">
+                                La plantilla define la estructura de reportes y los nombres canónicos de los archivos. Los SQL se inyectarán en sus entradas correspondientes.
+                            </p>
+
+                            {templateLoaded ? (
+                                <div className="flex items-center justify-between bg-emerald-500/10 border border-emerald-500/30 rounded-xl px-5 py-4 mb-6">
+                                    <div className="flex items-center gap-3">
+                                        <CheckCircle size={20} className="text-emerald-400 shrink-0" />
+                                        <div>
+                                            <p className="text-sm font-bold text-nafra-text">{templateName}</p>
+                                            <p className="text-xs text-nafra-text-dim">
+                                                {Array.isArray(sqlImportTemplate.data) ? `${sqlImportTemplate.data.length} reportes cargados` : ''}
+                                            </p>
+                                        </div>
+                                    </div>
+                                    <button onClick={() => { setTemplateLoaded(false); setTemplateName(''); setSqlImportTemplate({ data: null, fileName: null }); }}
+                                        className="p-2 hover:bg-nafra-surface rounded-lg text-nafra-text-muted hover:text-nafra-danger transition-colors">
+                                        <X size={16} />
+                                    </button>
+                                </div>
+                            ) : (
+                                <div className="flex flex-col gap-3 mb-6">
+                                    <button
+                                        onClick={() => {
+                                            setPageView('templates');
+                                            if (selectedClient) {
+                                                handleLibraryClientChange(selectedClient as Client);
+                                                if (selectedGeography && CLIENT_GEOGRAPHIES[selectedClient as Client]) {
+                                                    handleLibraryGeographyChange(selectedGeography);
+                                                }
+                                            }
+                                        }}
+                                        className="w-full py-2.5 px-4 bg-nafra-accent/10 hover:bg-nafra-accent/20 text-nafra-accent text-sm font-semibold text-left rounded-lg transition border border-nafra-accent/30 flex items-center gap-2"
+                                    >
+                                        <LibraryBig size={16} /> Cargar desde biblioteca
+                                    </button>
+                                    <button onClick={() => templateLocalInputRef.current?.click()}
+                                        className="w-full py-2.5 px-4 bg-nafra-surface hover:bg-nafra-card-hover text-nafra-text text-sm font-medium text-left rounded-lg transition border border-nafra-border">
+                                        Cargar desde local
+                                    </button>
+
+                                </div>
+                            )}
+
+                            <p className="text-xs text-nafra-text-muted italic">Si no tienes plantilla todavía, puedes omitir este paso y el JSON se generará directamente desde los archivos SQL.</p>
+
+                            <div className="mt-8 flex justify-between">
+                                <button onClick={() => setWizardStep(1)} className="px-6 py-2.5 bg-nafra-surface border border-nafra-border text-nafra-text font-bold rounded-xl flex items-center gap-2 hover:bg-nafra-card-hover transition-all">
+                                    <ArrowLeft size={16} /> Anterior
+                                </button>
+                                <button onClick={() => setWizardStep(3)} className="px-6 py-2.5 bg-nafra-accent hover:bg-nafra-accent-dim text-white font-bold rounded-xl flex items-center gap-2 transition-all">
+                                    {templateLoaded ? 'Siguiente' : 'Omitir y continuar'} <ArrowRight size={16} />
+                                </button>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* â”€â”€ STEP 3: SQL y Mapeo â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
+                    {wizardStep === 3 && (
+                        <div className="bg-nafra-card border border-nafra-border rounded-2xl p-8 shadow-premium animate-fade-in">
+                            <h2 className="text-lg font-bold text-nafra-text mb-1 flex items-center gap-2"><FolderInput size={20} className="text-nafra-accent" /> Carpeta SQL y Mapeo</h2>
+                            <p className="text-sm text-nafra-text-dim mb-6">Selecciona la carpeta con los archivos SQL. Verifica y ajusta el mapeo antes de generar el JSON.</p>
+
+                            {mappingRows.length === 0 ? (
+                                <button onClick={() => wizardSqlFolderRef.current?.click()}
+                                    className="w-full py-10 border-2 border-dashed border-nafra-border rounded-xl flex flex-col items-center gap-3 text-nafra-text-muted hover:border-nafra-accent hover:text-nafra-accent transition-all cursor-pointer bg-nafra-surface">
+                                    <FolderInput size={32} />
+                                    <span className="font-semibold text-sm">Seleccionar carpeta SQL</span>
+                                    <span className="text-xs">Haz clic para elegir una carpeta con archivos .sql</span>
+                                </button>
+                            ) : (
+                                <div>
+                                    <div className="flex items-center justify-between mb-3">
+                                        <span className="text-sm font-semibold text-nafra-text">{mappingRows.length} archivos SQL detectados</span>
+                                        <button onClick={() => { setMappingRows([]); wizardSqlFolderRef.current?.click(); }}
+                                            className="text-xs text-nafra-accent hover:underline flex items-center gap-1">
+                                            <RefreshCw size={12} /> Cambiar carpeta
+                                        </button>
+                                    </div>
+                                    <div className="border border-nafra-border rounded-xl overflow-hidden">
+                                        <table className="w-full text-left text-xs">
+                                            <thead className="bg-nafra-surface">
+                                                <tr>
+                                                    <th className="px-3 py-2.5 font-bold text-nafra-text-muted uppercase tracking-wide">Archivo SQL</th>
+                                                    <th className="px-3 py-2.5 font-bold text-nafra-text-muted uppercase tracking-wide text-center w-6"><Link size={12} /></th>
+                                                    <th className="px-3 py-2.5 font-bold text-nafra-text-muted uppercase tracking-wide">Reporte</th>
+                                                    <th className="px-3 py-2.5 font-bold text-nafra-text-muted uppercase tracking-wide">Entrada JSON</th>
+                                                    <th className="px-3 py-2.5 font-bold text-nafra-text-muted uppercase tracking-wide text-center">Estado</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody className="divide-y divide-nafra-border bg-nafra-card">
+                                                {mappingRows.map((row, idx) => (
+                                                    <tr key={idx} className="hover:bg-nafra-surface transition-colors">
+                                                        <td className="px-3 py-2.5 font-mono text-nafra-text">{row.sqlFile}</td>
+                                                        <td className="px-3 py-2.5 text-center text-nafra-text-muted">
+                                                            <ArrowRight size={12} />
+                                                        </td>
+                                                        <td className="px-3 py-2.5">
+                                                            {row.availableEntries.length > 0 ? (
+                                                                <select
+                                                                    value={row.reportEntry}
+                                                                    onChange={e => {
+                                                                        const entry = row.availableEntries.find(ae => ae.report === e.target.value);
+                                                                        const newRows = [...mappingRows];
+                                                                        newRows[idx] = { ...row, reportEntry: e.target.value, jsonEntry: entry ? entry.filename : row.jsonEntry, matched: !!entry };
+                                                                        setMappingRows(newRows);
+                                                                    }}
+                                                                    className="w-full bg-nafra-surface border border-nafra-border rounded-lg px-2 py-1 text-nafra-text text-xs outline-none focus:ring-1 focus:ring-nafra-accent"
+                                                                >
+                                                                    <option value="">– Sin asignar –</option>
+                                                                    {[...new Set(row.availableEntries.map(e => e.report))].map(r => (
+                                                                        <option key={r} value={r}>{r}</option>
+                                                                    ))}
+                                                                </select>
+                                                            ) : (
+                                                                <input
+                                                                    type="text"
+                                                                    value={row.reportEntry}
+                                                                    onChange={e => { const newRows = [...mappingRows]; newRows[idx] = { ...row, reportEntry: e.target.value }; setMappingRows(newRows); }}
+                                                                    className="w-full bg-nafra-surface border border-nafra-border rounded-lg px-2 py-1 text-nafra-text text-xs outline-none focus:ring-1 focus:ring-nafra-accent"
+                                                                    placeholder="Nombre del reporte"
+                                                                />
+                                                            )}
+                                                        </td>
+                                                        <td className="px-3 py-2.5">
+                                                            {row.availableEntries.length > 0 ? (
+                                                                <select
+                                                                    value={row.jsonEntry}
+                                                                    onChange={e => {
+                                                                        const entry = row.availableEntries.find(ae => ae.filename === e.target.value);
+                                                                        const newRows = [...mappingRows];
+                                                                        newRows[idx] = { ...row, jsonEntry: e.target.value, reportEntry: entry ? entry.report : row.reportEntry, matched: !!e.target.value };
+                                                                        setMappingRows(newRows);
+                                                                    }}
+                                                                    className="w-full bg-nafra-surface border border-nafra-border rounded-lg px-2 py-1 text-nafra-text text-xs outline-none focus:ring-1 focus:ring-nafra-accent"
+                                                                >
+                                                                    <option value="">– Nueva entrada –</option>
+                                                                    {row.availableEntries.map(ae => (
+                                                                        <option key={ae.filename} value={ae.filename}>{ae.filename}</option>
+                                                                    ))}
+                                                                </select>
+                                                            ) : (
+                                                                <input
+                                                                    type="text"
+                                                                    value={row.filenameHint}
+                                                                    onChange={e => { const newRows = [...mappingRows]; newRows[idx] = { ...row, filenameHint: e.target.value }; setMappingRows(newRows); }}
+                                                                    className="w-full bg-nafra-surface border border-nafra-border rounded-lg px-2 py-1 text-nafra-text text-xs outline-none focus:ring-1 focus:ring-nafra-accent font-mono"
+                                                                    placeholder="carpeta/nombre_archivo"
+                                                                />
+                                                            )}
+                                                        </td>
+                                                        <td className="px-3 py-2.5 text-center">
+                                                            {row.matched
+                                                                ? <span className="inline-flex items-center gap-1 text-emerald-400 font-semibold"><Check size={12} /> Vinculado</span>
+                                                                : <span className="inline-flex items-center gap-1 text-amber-400 font-semibold"><AlertCircle size={12} /> Nuevo</span>
+                                                            }
+                                                        </td>
+                                                    </tr>
+                                                ))}
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                    <div className="mt-3 flex items-center gap-4 text-xs text-nafra-text-muted">
+                                        <span className="flex items-center gap-1 text-emerald-400"><Check size={12} /> {mappingRows.filter(r => r.matched).length} vinculados</span>
+                                        <span className="flex items-center gap-1 text-amber-400"><AlertCircle size={12} /> {mappingRows.filter(r => !r.matched).length} nuevos</span>
+                                    </div>
+                                </div>
+                            )}
+
+                            <div className="mt-8 flex justify-between">
+                                <button onClick={() => setWizardStep(2)} className="px-6 py-2.5 bg-nafra-surface border border-nafra-border text-nafra-text font-bold rounded-xl flex items-center gap-2 hover:bg-nafra-card-hover transition-all">
+                                    <ArrowLeft size={16} /> Anterior
+                                </button>
+                                <button
+                                    disabled={mappingRows.length === 0}
+                                    onClick={handleGenerateJson}
+                                    className="px-6 py-2.5 bg-nafra-accent hover:bg-nafra-accent-dim text-white font-bold rounded-xl flex items-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed transition-all"
+                                >
+                                    <FileJson size={16} /> Generar JSON
+                                </button>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* â”€â”€ STEP 4: Resultado â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
+                    {wizardStep === 4 && generatedResult && (
+                        <div className="bg-nafra-card border border-nafra-border rounded-2xl p-8 shadow-premium animate-fade-in">
+                            <div className="flex items-center gap-3 mb-6">
+                                <div className="w-12 h-12 bg-emerald-500/10 border border-emerald-500/30 rounded-full flex items-center justify-center">
+                                    <CheckCircle size={24} className="text-emerald-400" />
+                                </div>
+                                <div>
+                                    <h2 className="text-lg font-bold text-nafra-text">JSON generado correctamente</h2>
+                                    <p className="text-sm text-nafra-text-dim">{selectedClient} {selectedGeography !== 'general' && selectedGeography ? `Â· ${selectedGeography}` : ''} Â· {selectedEnv}</p>
+                                </div>
+                            </div>
+
+                            <div className="grid grid-cols-3 gap-4 mb-8">
+                                <div className="bg-nafra-surface border border-nafra-border rounded-xl p-4 text-center">
+                                    <p className="text-2xl font-bold text-nafra-accent">{generatedResult.length}</p>
+                                    <p className="text-xs text-nafra-text-muted mt-1">Reportes</p>
+                                </div>
+                                <div className="bg-nafra-surface border border-nafra-border rounded-xl p-4 text-center">
+                                    <p className="text-2xl font-bold text-nafra-accent">{totalQueries}</p>
+                                    <p className="text-xs text-nafra-text-muted mt-1">Consultas SQL</p>
+                                </div>
+                                <div className="bg-nafra-surface border border-nafra-border rounded-xl p-4 text-center">
+                                    <p className="text-2xl font-bold text-emerald-400">{mappingRows.filter(r => r.matched).length}</p>
+                                    <p className="text-xs text-nafra-text-muted mt-1">Vinculados</p>
+                                </div>
+                            </div>
+
+                            <div className="flex flex-col gap-3 mb-6">
+                                <button onClick={handleWizardDownload}
+                                    className="w-full py-3 bg-nafra-accent hover:bg-nafra-accent-dim text-white font-bold rounded-xl flex items-center justify-center gap-2 transition-all shadow">
+                                    <Download size={18} /> Descargar JSON
+                                </button>
+                                <button onClick={handleUploadToRepo}
+                                    className="w-full py-3 bg-nafra-surface border border-nafra-border hover:bg-nafra-card-hover text-nafra-text font-bold rounded-xl flex items-center justify-center gap-2 transition-all">
+                                    <Upload size={18} /> Subir al Repositorio
+                                </button>
+                            </div>
+
+                            <div className="flex justify-center">
+                                <button onClick={resetWizard}
+                                    className="px-5 py-2 text-nafra-text-dim hover:text-nafra-text text-sm flex items-center gap-2 hover:bg-nafra-surface rounded-lg transition-all">
+                                    <RefreshCw size={14} /> Generar otro JSON
+                                </button>
+                            </div>
+                        </div>
+                    )}
                 </div>
             </div>
+            )}
         </div>
     );
 };

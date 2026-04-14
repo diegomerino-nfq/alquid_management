@@ -46,47 +46,73 @@ const LoginPage: React.FC = () => {
     }, [setUser, addLog]);
 
     return (
-        <div className="min-h-screen bg-alquid-gray25 flex flex-col items-center justify-center p-4">
-            <div className="w-full max-w-md bg-white rounded-[2.5rem] shadow-premium overflow-hidden border border-gray-100 animate-fade-in relative">
-                <div className="absolute top-0 right-0 w-32 h-32 bg-alquid-blue/5 rounded-full blur-2xl -mr-16 -mt-16"></div>
-
-                <div className="p-12 pb-6 text-center">
-                    <div className="w-24 h-24 bg-alquid-navy rounded-3xl flex items-center justify-center mx-auto mb-8 shadow-2xl shadow-alquid-navy/20 group hover:rotate-[5deg] transition-transform duration-500">
-                        <LogIn size={44} className="text-white" />
-                    </div>
-                    <h1 className="text-4xl font-ubuntu font-bold text-alquid-navy mb-3 tracking-tight">ALQUID <span className="text-alquid-blue">Suite.</span></h1>
-                    <p className="text-gray-400 font-medium leading-relaxed">Accede a la plataforma de gestión de datos corporativos de NFQ.</p>
-                </div>
-
-                <div className="p-12 pt-4 space-y-8 flex flex-col items-center">
-                    {error && (
-                        <div className="w-full p-5 bg-red-50 border border-red-100 rounded-[1.5rem] flex items-center gap-4 text-red-600 animate-shake shadow-sm shadow-red-500/5">
-                            <ShieldAlert size={22} className="shrink-0" />
-                            <div className="text-sm font-bold">{error}</div>
-                        </div>
-                    )}
-
-                    <div className="relative group">
-                        <div className="absolute -inset-1 bg-gradient-to-r from-alquid-blue to-alquid-navy rounded-xl blur opacity-20 group-hover:opacity-40 transition duration-1000 group-hover:duration-200"></div>
-                        <div id="googleBtn" className="relative min-h-[44px] flex justify-center"></div>
-                    </div>
-
-                    {loading && (
-                        <div className="flex flex-col items-center gap-4 py-2">
-                            <div className="flex gap-1.5">
-                                <div className="w-2 h-2 bg-alquid-blue rounded-full animate-bounce [animation-delay:-0.3s]"></div>
-                                <div className="w-2 h-2 bg-alquid-blue rounded-full animate-bounce [animation-delay:-0.15s]"></div>
-                                <div className="w-2 h-2 bg-alquid-blue rounded-full animate-bounce"></div>
+        <div className="min-h-screen bg-nafra-bg nafra-grid flex items-center justify-center p-4 text-nafra-text">
+            <div className="w-full max-w-5xl overflow-hidden rounded-[2rem] border border-nafra-border bg-nafra-card shadow-premium animate-fade-in">
+                <div className="grid lg:grid-cols-[1.15fr_0.85fr]">
+                    <div className="relative overflow-hidden border-b border-nafra-border p-10 lg:border-b-0 lg:border-r">
+                        <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(41,124,242,0.16),transparent_36%),radial-gradient(circle_at_bottom_right,rgba(41,124,242,0.08),transparent_30%)]"></div>
+                        <div className="relative z-10">
+                            <div className="mb-6 inline-flex items-center gap-2 rounded-full border border-nafra-border-light bg-nafra-surface px-3 py-1 text-[11px] uppercase tracking-[0.24em] text-nafra-text-dim">
+                                NFQ Advisory · análisis de resultados financieros
                             </div>
-                            <span className="text-xs font-black text-alquid-navy uppercase tracking-[0.2em] opacity-50">Autenticando usuario...</span>
-                        </div>
-                    )}
-                </div>
+                            <div className="mb-8 flex h-16 w-16 items-center justify-center rounded-2xl bg-nafra-accent text-white shadow-lg shadow-nafra-accent/20">
+                                <LogIn size={28} />
+                            </div>
+                            <h1 className="max-w-xl text-4xl font-semibold tracking-tight text-nafra-text">
+                                ALQUID Suite.
+                            </h1>
+                            <p className="mt-4 max-w-xl text-sm leading-7 text-nafra-text-dim">
+                                Accede a la plataforma de gestión de informes, extracción SQL, versionado y validación técnica desde un entorno unificado orientado a producción.
+                            </p>
 
-                <div className="p-8 bg-gray-50/50 border-t border-gray-100/50 text-center">
-                    <span className="text-[10px] text-gray-400 font-bold uppercase tracking-[0.2em]">
-                        © 2026 NFQ Risk Solutions • <span className="text-alquid-navy/30">Data Intelligence Layer</span>
-                    </span>
+                            <div className="mt-10 grid gap-3 sm:grid-cols-3">
+                                { [
+                                    ['Descarga de informes', 'Gestión de reportes'],
+                                    ['Extracción de consultas', 'Extracción SQL avanzada'],
+                                    ['Versionado por entorno', 'Control de versiones'],
+                                ].map(([title, text]) => (
+                                    <div key={title} className="rounded-xl border border-nafra-border bg-nafra-surface/80 p-4">
+                                        <div className="text-[11px] uppercase tracking-[0.2em] text-nafra-text-muted">{title}</div>
+                                        <div className="mt-2 text-sm font-medium text-nafra-text">{text}</div>
+                                    </div>
+                                )) }
+                            </div>
+                        </div>
+                    </div>
+
+                    <div className="flex flex-col justify-center p-10">
+                        <div className="mb-6">
+                            <div className="text-[11px] uppercase tracking-[0.28em] text-nafra-text-muted">Acceso seguro</div>
+                            <h2 className="mt-2 text-2xl font-semibold text-nafra-text">Iniciar sesión</h2>
+                            <p className="mt-2 text-sm leading-6 text-nafra-text-dim">Utiliza tu cuenta corporativa de NFQ para entrar en la suite.</p>
+                        </div>
+
+                        {error && (
+                            <div className="mb-6 flex items-center gap-3 rounded-xl border border-nafra-danger/30 bg-nafra-danger/10 p-4 text-sm text-nafra-danger">
+                                <ShieldAlert size={18} className="shrink-0" />
+                                <div className="font-medium">{error}</div>
+                            </div>
+                        )}
+
+                        <div className="rounded-2xl border border-nafra-border bg-nafra-surface p-6">
+                            <div id="googleBtn" className="min-h-[44px] flex justify-center"></div>
+
+                            {loading && (
+                                <div className="mt-6 flex flex-col items-center gap-4 py-2">
+                                    <div className="flex gap-1.5">
+                                        <div className="w-2 h-2 bg-nafra-accent rounded-full animate-bounce [animation-delay:-0.3s]"></div>
+                                        <div className="w-2 h-2 bg-nafra-accent rounded-full animate-bounce [animation-delay:-0.15s]"></div>
+                                        <div className="w-2 h-2 bg-nafra-accent rounded-full animate-bounce"></div>
+                                    </div>
+                                    <span className="text-[11px] font-semibold uppercase tracking-[0.22em] text-nafra-text-muted">Autenticando usuario...</span>
+                                </div>
+                            )}
+                        </div>
+
+                        <div className="mt-6 text-[10px] uppercase tracking-[0.22em] text-nafra-text-muted">
+                            © 2026 NFQ Risk Solutions · Data Intelligence Layer
+                        </div>
+                    </div>
                 </div>
             </div>
         </div>

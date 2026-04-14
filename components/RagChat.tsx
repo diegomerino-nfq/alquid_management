@@ -20,7 +20,7 @@ const MarkdownContent: React.FC<{ text: string }> = ({ text }) => {
     while ((m = re.exec(str)) !== null) {
       if (m.index > last) parts.push(str.slice(last, m.index));
       const tok = m[0];
-      if (tok.startsWith('`')) parts.push(<code key={key++} className="bg-gray-100 text-alquid-blue font-mono text-[11px] px-1.5 py-0.5 rounded">{tok.slice(1, -1)}</code>);
+      if (tok.startsWith('`')) parts.push(<code key={key++} className="bg-nafra-surface text-nafra-accent font-mono text-[11px] px-1.5 py-0.5 rounded border border-nafra-border">{tok.slice(1, -1)}</code>);
       else if (tok.startsWith('**')) parts.push(<strong key={key++}>{tok.slice(2, -2)}</strong>);
       else if (tok.startsWith('*')) parts.push(<em key={key++}>{tok.slice(1, -1)}</em>);
       last = m.index + tok.length;
@@ -41,9 +41,9 @@ const MarkdownContent: React.FC<{ text: string }> = ({ text }) => {
         i++;
       }
       elements.push(
-        <div key={i} className="my-2 rounded-xl overflow-hidden border border-gray-200">
-          {lang && <div className="bg-gray-100 text-gray-400 text-[10px] font-mono px-3 py-1 border-b border-gray-200">{lang}</div>}
-          <pre className="bg-gray-950 text-gray-100 text-xs font-mono p-3 overflow-x-auto leading-relaxed whitespace-pre">{codeLines.join('\n')}</pre>
+        <div key={i} className="my-2 rounded-xl overflow-hidden border border-nafra-border">
+          {lang && <div className="bg-nafra-surface text-nafra-text-muted text-[10px] font-mono px-3 py-1 border-b border-nafra-border">{lang}</div>}
+          <pre className="bg-[#0b1220] text-[#dbe7ff] text-xs font-mono p-3 overflow-x-auto leading-relaxed whitespace-pre">{codeLines.join('\n')}</pre>
         </div>
       );
       i++;
@@ -53,7 +53,7 @@ const MarkdownContent: React.FC<{ text: string }> = ({ text }) => {
     const headingMatch = line.match(/^(#{1,3})\s+(.+)/);
     if (headingMatch) {
       const level = headingMatch[1].length;
-      const cls = level === 1 ? 'text-base font-black text-alquid-navy mt-3 mb-1' : level === 2 ? 'text-sm font-bold text-alquid-navy mt-2 mb-1' : 'text-sm font-semibold text-gray-700 mt-1';
+      const cls = level === 1 ? 'text-base font-black text-nafra-text mt-3 mb-1' : level === 2 ? 'text-sm font-bold text-nafra-text mt-2 mb-1' : 'text-sm font-semibold text-nafra-text-dim mt-1';
       elements.push(<div key={i} className={cls}>{renderInline(headingMatch[2])}</div>);
       i++; continue;
     }
@@ -62,7 +62,7 @@ const MarkdownContent: React.FC<{ text: string }> = ({ text }) => {
     if (ulMatch) {
       elements.push(
         <div key={i} className="flex items-start gap-2 text-sm leading-relaxed">
-          <span className="mt-1.5 w-1.5 h-1.5 rounded-full bg-alquid-blue flex-shrink-0"></span>
+          <span className="mt-1.5 w-1.5 h-1.5 rounded-full bg-nafra-accent flex-shrink-0"></span>
           <span>{renderInline(ulMatch[2])}</span>
         </div>
       );
@@ -74,7 +74,7 @@ const MarkdownContent: React.FC<{ text: string }> = ({ text }) => {
       const num = line.match(/^(\s*)(\d+)\./)?.[2] ?? '1';
       elements.push(
         <div key={i} className="flex items-start gap-2 text-sm leading-relaxed">
-          <span className="flex-shrink-0 w-5 h-5 rounded-full bg-alquid-blue/10 text-alquid-blue text-[10px] font-bold flex items-center justify-center mt-0.5">{num}</span>
+          <span className="flex-shrink-0 w-5 h-5 rounded-full bg-nafra-accent/10 text-nafra-accent text-[10px] font-bold flex items-center justify-center mt-0.5">{num}</span>
           <span>{renderInline(olMatch[2])}</span>
         </div>
       );
@@ -82,7 +82,7 @@ const MarkdownContent: React.FC<{ text: string }> = ({ text }) => {
     }
     // Horizontal rule
     if (/^---+$/.test(line.trim())) {
-      elements.push(<hr key={i} className="my-2 border-gray-200" />);
+      elements.push(<hr key={i} className="my-2 border-nafra-border" />);
       i++; continue;
     }
     // Empty line
@@ -303,30 +303,13 @@ const RagChat: React.FC = () => {
 
   // ─────────────────────────────────────────────────────────────────────────
   return (
-    <div className="flex flex-col h-[680px] bg-white rounded-3xl border border-gray-100 shadow-premium overflow-hidden">
+    <div className="flex flex-col h-[680px] bg-nafra-card rounded-3xl border border-nafra-border shadow-premium overflow-hidden">
 
       {/* ── Header ─────────────────────────────────────────────────────────── */}
-      <div className="bg-alquid-navy px-6 py-4 flex items-center justify-between flex-shrink-0">
+      <div className="bg-nafra-surface px-6 py-4 flex items-center justify-between flex-shrink-0 border-b border-nafra-border">
         <div className="flex items-center gap-3">
-          <div className="w-9 h-9 bg-alquid-blue rounded-xl flex items-center justify-center shadow-md">
+          <div className="w-9 h-9 bg-nafra-accent rounded-xl flex items-center justify-center shadow-md shadow-nafra-accent/20">
             <Bot size={18} className="text-white" />
-          </div>
-          <div>
-            <h3 className="text-white font-bold text-sm leading-tight">Asistente de Queries</h3>
-            <p className="text-gray-400 text-xs leading-tight mt-0.5">
-              {!status.hasApiKey
-                ? <span className="text-amber-400">GOOGLE_GEMINI_API_KEY no configurada</span>
-                : status.chunksCount > 0
-                  ? <>
-                      {`${status.chunksCount} queries indexadas`}
-                      {ragActiveFilters.geography &&
-                        <span className="ml-1 text-alquid-blue font-semibold">
-                          {' · '}{ragActiveFilters.geography}{ragActiveFilters.env ? ' / ' + ragActiveFilters.env : ''}
-                        </span>
-                      }
-                    </>
-                  : 'Sin indexar — pulsa el botón para comenzar'}
-            </p>
           </div>
         </div>
 
@@ -335,7 +318,7 @@ const RagChat: React.FC = () => {
             onClick={handleClear}
             disabled={messages.length === 0}
             title="Limpiar conversación y reiniciar contexto de geografía"
-            className="flex items-center gap-1.5 px-3 py-2 bg-white/5 hover:bg-red-500/20 border border-white/10 hover:border-red-400/30 text-gray-400 hover:text-red-300 text-xs font-medium rounded-xl transition-all disabled:opacity-30 disabled:cursor-not-allowed"
+            className="flex items-center gap-1.5 px-3 py-2 bg-nafra-card hover:bg-nafra-danger/10 border border-nafra-border hover:border-nafra-danger/40 text-nafra-text-dim hover:text-nafra-danger text-xs font-medium rounded-xl transition-all disabled:opacity-30 disabled:cursor-not-allowed"
           >
             <Trash2 size={12} /> Limpiar
           </button>
@@ -343,7 +326,7 @@ const RagChat: React.FC = () => {
             onClick={handleIndex}
             disabled={indexing}
             title="Genera embeddings de todas las queries del repositorio"
-            className="flex items-center gap-2 px-4 py-2 bg-white/10 hover:bg-white/20 border border-white/20 text-white text-xs font-bold rounded-xl transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+            className="flex items-center gap-2 px-4 py-2 bg-nafra-accent hover:bg-nafra-accent-dim border border-nafra-accent text-white text-xs font-bold rounded-xl transition-all disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {indexing
               ? <><Loader2 size={13} className="animate-spin" /> Indexando…</>
@@ -353,24 +336,24 @@ const RagChat: React.FC = () => {
       </div>
 
       {/* ── Messages area ──────────────────────────────────────────────────── */}
-      <div className="flex-1 overflow-y-auto p-5 space-y-4 bg-gray-50/60 custom-scrollbar">
+      <div className="flex-1 overflow-y-auto p-5 space-y-4 bg-nafra-bg/40 custom-scrollbar">
 
         {/* Empty state */}
         {messages.length === 0 && (
-          <div className="h-full flex flex-col items-center justify-center text-center text-gray-400 animate-fade-in py-8">
-            <Cpu size={44} className="mb-4 text-gray-200" />
-            <p className="font-bold text-gray-600 mb-1 text-base">Pregunta sobre tu repositorio SQL</p>
-            <p className="text-sm max-w-sm leading-relaxed text-gray-400">
+          <div className="h-full flex flex-col items-center justify-center text-center text-nafra-text-dim animate-fade-in py-8">
+            <Cpu size={44} className="mb-4 text-nafra-border-light" />
+            <p className="font-bold text-nafra-text mb-1 text-base">Pregunta sobre tu repositorio SQL</p>
+            <p className="text-sm max-w-sm leading-relaxed text-nafra-text-dim">
               ¿Qué tabla usa el informe X? ¿Qué parámetros necesita Y? ¿Cuál es la diferencia entre PRE y PRO para Z?
             </p>
             {!status.hasApiKey && (
-              <div className="mt-5 flex items-center gap-2 text-xs text-red-600 bg-red-50 border border-red-200 px-4 py-2 rounded-xl max-w-sm">
+              <div className="mt-5 flex items-center gap-2 text-xs text-nafra-danger bg-nafra-danger/10 border border-nafra-danger/30 px-4 py-2 rounded-xl max-w-sm">
                 <AlertCircle size={13} />
                 Falta <code className="font-mono font-bold mx-1">GOOGLE_GEMINI_API_KEY</code> en el <code className="font-mono font-bold mx-1">.env</code>. Añádela y reinicia el servidor.
               </div>
             )}
             {status.hasApiKey && status.chunksCount === 0 && (
-              <div className="mt-5 flex items-center gap-2 text-xs text-amber-600 bg-amber-50 border border-amber-200 px-4 py-2 rounded-xl">
+              <div className="mt-5 flex items-center gap-2 text-xs text-nafra-warning bg-nafra-warning/10 border border-nafra-warning/30 px-4 py-2 rounded-xl">
                 <Info size={13} />
                 Indexa el repositorio primero usando el botón de arriba.
               </div>
@@ -384,7 +367,7 @@ const RagChat: React.FC = () => {
             {/* User bubble */}
             {msg.role === 'user' && (
               <div className="flex justify-end">
-                <div className="max-w-[80%] bg-alquid-navy text-white px-4 py-3 rounded-2xl rounded-tr-sm text-sm leading-relaxed shadow-sm">
+                <div className="max-w-[80%] bg-nafra-accent text-white px-4 py-3 rounded-2xl rounded-tr-sm text-sm leading-relaxed shadow-sm shadow-nafra-accent/10">
                   {msg.content}
                 </div>
               </div>
@@ -394,10 +377,10 @@ const RagChat: React.FC = () => {
             {msg.role === 'assistant' && (
               <div className="flex flex-col gap-2">
                 <div className="flex items-start gap-3">
-                  <div className="w-7 h-7 bg-alquid-blue rounded-lg flex items-center justify-center flex-shrink-0 mt-0.5">
+                  <div className="w-7 h-7 bg-nafra-accent rounded-lg flex items-center justify-center flex-shrink-0 mt-0.5">
                     <Bot size={14} className="text-white" />
                   </div>
-                  <div className="flex-1 bg-white border border-gray-200 rounded-2xl rounded-tl-sm px-4 py-3 text-gray-800 shadow-sm">
+                  <div className="flex-1 bg-nafra-surface border border-nafra-border rounded-2xl rounded-tl-sm px-4 py-3 text-nafra-text shadow-sm">
                     <MarkdownContent text={msg.content} />
                   </div>
                 </div>
@@ -407,7 +390,7 @@ const RagChat: React.FC = () => {
                   <div className="ml-10">
                     <button
                       onClick={() => toggleSources(i)}
-                      className="flex items-center gap-1.5 text-xs text-gray-400 hover:text-alquid-blue transition-colors font-medium"
+                      className="flex items-center gap-1.5 text-xs text-nafra-text-muted hover:text-nafra-accent transition-colors font-medium"
                     >
                       <Database size={11} />
                       {msg.sources.length} fuente{msg.sources.length > 1 ? 's' : ''} consultada{msg.sources.length > 1 ? 's' : ''}
@@ -417,17 +400,17 @@ const RagChat: React.FC = () => {
                     {openSources.has(i) && (
                       <div className="mt-2 space-y-1.5 animate-fade-in">
                         {msg.sources.map((src, si) => (
-                          <div key={si} className="flex items-start gap-2 text-xs bg-white border border-gray-100 rounded-xl px-3 py-2 shadow-sm">
-                            <span className="w-4 h-4 rounded-full bg-alquid-blue/10 text-alquid-blue flex items-center justify-center font-bold flex-shrink-0 text-[10px] mt-0.5">
+                          <div key={si} className="flex items-start gap-2 text-xs bg-nafra-surface border border-nafra-border rounded-xl px-3 py-2 shadow-sm">
+                            <span className="w-4 h-4 rounded-full bg-nafra-accent/10 text-nafra-accent flex items-center justify-center font-bold flex-shrink-0 text-[10px] mt-0.5">
                               {si + 1}
                             </span>
                             <div className="flex-1 min-w-0">
-                              <span className="font-bold text-gray-700 block truncate">{src.filename}</span>
-                              <span className="text-gray-400">
+                              <span className="font-bold text-nafra-text block truncate">{src.filename}</span>
+                              <span className="text-nafra-text-dim">
                                 {src.client}{src.geography ? ` / ${src.geography}` : ''} · {src.env} · {src.reportName}
                               </span>
                             </div>
-                            <span className="text-gray-300 font-mono ml-2 flex-shrink-0 text-[10px] mt-0.5">
+                            <span className="text-nafra-text-muted font-mono ml-2 flex-shrink-0 text-[10px] mt-0.5">
                               {(src.score * 100).toFixed(0)}%
                             </span>
                           </div>
@@ -444,8 +427,8 @@ const RagChat: React.FC = () => {
               <div className="flex justify-center">
                 <div className={`flex items-center gap-2 text-xs px-4 py-2 rounded-full ${
                   msg.isError
-                    ? 'text-red-600 bg-red-50 border border-red-100'
-                    : 'text-emerald-700 bg-emerald-50 border border-emerald-100'
+                    ? 'text-nafra-danger bg-nafra-danger/10 border border-nafra-danger/30'
+                    : 'text-emerald-300 bg-emerald-500/10 border border-emerald-500/20'
                 }`}>
                   {msg.isError
                     ? <AlertCircle size={12} />
@@ -460,15 +443,15 @@ const RagChat: React.FC = () => {
         {/* Typing indicator */}
         {loading && (
           <div className="flex items-start gap-3">
-            <div className="w-7 h-7 bg-alquid-blue rounded-lg flex items-center justify-center flex-shrink-0">
+            <div className="w-7 h-7 bg-nafra-accent rounded-lg flex items-center justify-center flex-shrink-0">
               <Bot size={14} className="text-white" />
             </div>
-            <div className="bg-white border border-gray-200 rounded-2xl rounded-tl-sm px-4 py-3 shadow-sm">
+            <div className="bg-nafra-surface border border-nafra-border rounded-2xl rounded-tl-sm px-4 py-3 shadow-sm">
               <div className="flex gap-1 items-center h-4">
                 {[0, 150, 300].map(delay => (
                   <span
                     key={delay}
-                    className="w-2 h-2 bg-alquid-blue/40 rounded-full animate-bounce"
+                    className="w-2 h-2 bg-nafra-accent/40 rounded-full animate-bounce"
                     style={{ animationDelay: `${delay}ms` }}
                   />
                 ))}
@@ -483,7 +466,7 @@ const RagChat: React.FC = () => {
       {/* ── Input area ─────────────────────────────────────────────────────── */}
       <form
         onSubmit={handleSubmit}
-        className="flex-shrink-0 p-4 border-t border-gray-100 bg-white flex gap-3 items-end"
+        className="flex-shrink-0 p-4 border-t border-nafra-border bg-nafra-surface flex gap-3 items-end"
       >
         <textarea
           ref={textareaRef}
@@ -492,13 +475,13 @@ const RagChat: React.FC = () => {
           onChange={e => { setInput(e.target.value); resizeTextarea(); }}
           onKeyDown={handleKeyDown}
           placeholder="Escribe tu pregunta… (Enter para enviar, Shift+Enter nueva línea)"
-          className="flex-1 resize-none border border-gray-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-alquid-blue/30 focus:border-alquid-blue transition-all placeholder-gray-400 overflow-hidden"
+          className="flex-1 resize-none border border-nafra-border rounded-xl bg-nafra-card px-4 py-3 text-sm text-nafra-text focus:outline-none focus:ring-2 focus:ring-nafra-accent/30 focus:border-nafra-accent transition-all placeholder-nafra-text-muted overflow-hidden"
           style={{ minHeight: '44px', maxHeight: '128px' }}
         />
         <button
           type="submit"
           disabled={loading || !input.trim()}
-          className="p-3 bg-alquid-navy text-white rounded-xl hover:bg-opacity-90 transition-all disabled:opacity-40 disabled:cursor-not-allowed flex-shrink-0 shadow-sm"
+          className="p-3 bg-nafra-accent text-white rounded-xl hover:bg-nafra-accent-dim transition-all disabled:opacity-40 disabled:cursor-not-allowed flex-shrink-0 shadow-sm"
           title="Enviar pregunta"
         >
           <Send size={18} />

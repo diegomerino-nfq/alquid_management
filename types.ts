@@ -49,7 +49,7 @@ export type RepositoryData = Record<string, Record<string, Record<string, Reposi
 export const CLIENT_GEOGRAPHIES: Record<Client, Geography[] | null> = {
   "Banca March": ["Luxemburgo"],
   "Bankinter": null, // No geographies
-  "BBVA": ["Argentina", "Suiza", "Perú", "Colombia", "Nueva York", "España"],
+  "BBVA": ["Argentina", "Colombia", "España", "Nueva York", "Perú", "Suiza"],
   "Pichincha": null // No geographies
 };
 

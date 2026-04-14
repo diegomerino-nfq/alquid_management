@@ -484,9 +484,9 @@ async function startServer() {
     console.log(`[REPO] Comentario: ${comment || 'N/A'}`);
 
     try {
-      // 1. Get latest version
-      const row = queries.getLatestVersion.get(client, geographyValue, env, filename) as any;
-      const nextVersion = (row?.maxV || 0) + 1;
+      // 1. Get latest version by (client, geography, env) — filename is stored as-is
+      const row = queries.getLatestVersion.get(client, geographyValue, env) as any;
+      const nextVersion = (row?.maxV !== null && row?.maxV !== undefined) ? row.maxV + 1 : 0;
       const id = `${client}_${geography || 'general'}_${env}_${filename}_v${nextVersion}`;
 
       // 2. Persistent storage (DB for metadata/content for now)
@@ -555,6 +555,51 @@ async function startServer() {
       queries.addLog.run('Sistema', 'REPOSITORIO', 'SUBIDA_EXITOSA', `Archivo v${nextVersion} guardado: ${filename} en ${client} ${geography || 'general'} ${env}`, 'SUCCESS');
     } catch (error: any) {
       console.error('Repository upload error:', error.message);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // --- Template Endpoints ---
+
+  app.get('/api/templates', (req, res) => {
+    const { client, geography } = req.query;
+    try {
+      let templates;
+      if (client) {
+        const geoValue = geography === 'null' || !geography ? null : geography as string;
+        templates = queries.getTemplates.all(client as string, geoValue);
+      } else {
+        templates = queries.getAllTemplates.all();
+      }
+      res.json(Array.isArray(templates) ? templates : []);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.post('/api/templates', (req, res) => {
+    const { client, geography, name, content, uploadedBy } = req.body;
+    if (!client || !name || !content) {
+      res.status(400).json({ error: 'client, name, and content are required' });
+      return;
+    }
+    const geoValue = geography === 'null' || !geography ? null : geography;
+    const geoSlug = geoValue ? `_${(geoValue as string).replace(/\s+/g, '_')}` : '';
+    const id = `tpl_${(client as string).replace(/\s+/g, '_')}${geoSlug}_${Date.now()}`;
+    try {
+      queries.addTemplate.run(id, client, geoValue, name, JSON.stringify(content), uploadedBy || 'user');
+      res.status(201).json({ id, name, client, geography: geoValue });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.delete('/api/templates/:id', (req, res) => {
+    const { id } = req.params;
+    try {
+      queries.deleteTemplate.run(id);
+      res.status(204).end();
+    } catch (error: any) {
       res.status(500).json({ error: error.message });
     }
   });

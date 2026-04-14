@@ -7,6 +7,91 @@ const TOP_LEVEL_KEYWORDS = new Set([
   'UNION', 'UNION ALL', 'EXCEPT', 'INTERSECT', 'WITH'
 ]);
 
+const ALIAS_SKIP_PREFIXES = [
+  'FROM', 'JOIN', 'LEFT JOIN', 'RIGHT JOIN', 'INNER JOIN', 'OUTER JOIN', 'CROSS JOIN',
+  'WHERE', 'GROUP BY', 'ORDER BY', 'HAVING', 'LIMIT', 'UNION', 'UNION ALL', 'ON'
+];
+
+const findTopLevelAliasAsIndex = (line: string): number => {
+  let parenLevel = 0;
+  let quoteChar = '';
+  const upper = line.toUpperCase();
+  let candidate = -1;
+
+  for (let i = 0; i < line.length; i++) {
+    const ch = line[i];
+    const next = line[i + 1];
+
+    if (quoteChar) {
+      if (ch === quoteChar) {
+        if (next === quoteChar) {
+          i++;
+        } else {
+          quoteChar = '';
+        }
+      }
+      continue;
+    }
+
+    if (ch === '\'' || ch === '"') {
+      quoteChar = ch;
+      continue;
+    }
+
+    if (ch === '(') {
+      parenLevel++;
+      continue;
+    }
+
+    if (ch === ')') {
+      parenLevel = Math.max(0, parenLevel - 1);
+      continue;
+    }
+
+    if (parenLevel === 0 && upper.slice(i, i + 4) === ' AS ') {
+      candidate = i;
+    }
+  }
+
+  return candidate;
+};
+
+const splitAliasIntoNewLine = (formattedSql: string): string => {
+  const lines = formattedSql.split('\n');
+  const out: string[] = [];
+
+  for (const line of lines) {
+    const trimmed = line.trimStart();
+    const upperTrimmed = trimmed.toUpperCase();
+
+    if (ALIAS_SKIP_PREFIXES.some(prefix => upperTrimmed.startsWith(prefix))) {
+      out.push(line);
+      continue;
+    }
+
+    const aliasIdx = findTopLevelAliasAsIndex(line);
+    if (aliasIdx === -1) {
+      out.push(line);
+      continue;
+    }
+
+    const indentMatch = line.match(/^\s*/);
+    const indent = indentMatch ? indentMatch[0] : '';
+    const left = line.slice(0, aliasIdx).trim();
+    const alias = line.slice(aliasIdx + 1).trimStart(); // keeps "AS ..."
+
+    if (!left) {
+      out.push(line);
+      continue;
+    }
+
+    out.push(`${indent}${left}`);
+    out.push(`${indent}${alias}`);
+  }
+
+  return out.join('\n');
+};
+
 /**
  * Tokenizer that preserves strings and comments
  */
@@ -232,7 +317,7 @@ export const formatSqlBonito = (sql: string): string => {
   }
   
   flush();
-  return formatted;
+  return splitAliasIntoNewLine(formatted);
 };
 
 export const prepareFinalSql = (queryData: QueryDefinition, loadIdVal: string): string => {

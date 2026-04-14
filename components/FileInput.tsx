@@ -54,18 +54,18 @@ const FileInput: React.FC<FileInputProps> = ({ label, accept, onFileLoaded, onRe
 
   return (
     <div className="mb-4 group">
-      <label className="block text-sm font-semibold text-gray-700 mb-1.5">
-        {label} {required && <span className="text-red-500">*</span>}
+      <label className="block text-sm font-semibold text-nafra-text mb-1.5">
+        {label} {required && <span className="text-nafra-danger">*</span>}
       </label>
       <div 
         onClick={() => !fileName && fileInputRef.current?.click()}
         className={`
           relative border-2 rounded-xl p-4 transition-all duration-200 shadow-sm
           ${error 
-            ? 'border-red-300 bg-red-50' 
+            ? 'border-nafra-danger/60 bg-nafra-danger/10' 
             : fileName 
-              ? 'border-green-500 bg-green-50 ring-1 ring-green-500' 
-              : 'border-dashed border-gray-300 bg-gray-50 hover:border-alquid-blue hover:bg-blue-50 cursor-pointer'
+              ? 'border-green-400/70 bg-green-500/10 ring-1 ring-green-500/40' 
+              : 'border-dashed border-nafra-border bg-nafra-surface hover:border-nafra-accent hover:bg-nafra-card cursor-pointer'
           }
         `}
         title={fileName || undefined}
@@ -81,16 +81,16 @@ const FileInput: React.FC<FileInputProps> = ({ label, accept, onFileLoaded, onRe
         <div className="flex items-center gap-3">
           {fileName ? (
             <>
-              <div className="bg-green-100 p-2 rounded-full flex-shrink-0">
-                 <CheckCircle className="text-green-600 w-6 h-6" />
+              <div className="bg-green-500/15 p-2 rounded-full flex-shrink-0 border border-green-500/30">
+                 <CheckCircle className="text-green-300 w-6 h-6" />
               </div>
               <div className="flex-1 overflow-hidden">
-                <p className="text-sm font-bold text-green-800 truncate">{fileName}</p>
-                <p className="text-xs text-green-600">Cargado correctamente</p>
+                <p className="text-sm font-bold text-green-200 truncate">{fileName}</p>
+                <p className="text-xs text-green-300">Cargado correctamente</p>
               </div>
               <button 
                 onClick={handleRemove}
-                className="p-2 bg-white rounded-full text-gray-400 hover:text-red-500 hover:bg-red-50 shadow-sm transition-colors z-10"
+                className="p-2 bg-nafra-card rounded-full text-nafra-text-muted hover:text-nafra-danger hover:bg-nafra-danger/10 shadow-sm transition-colors z-10 border border-nafra-border"
                 title="Eliminar archivo"
               >
                 <Trash2 size={18} />
@@ -98,18 +98,18 @@ const FileInput: React.FC<FileInputProps> = ({ label, accept, onFileLoaded, onRe
             </>
           ) : (
             <>
-              <div className="bg-white p-2 rounded-full shadow-sm flex-shrink-0">
-                 <Upload className="text-gray-400 w-6 h-6 group-hover:text-alquid-blue transition-colors" />
+              <div className="bg-nafra-card p-2 rounded-full shadow-sm flex-shrink-0 border border-nafra-border">
+                 <Upload className="text-nafra-text-muted w-6 h-6 group-hover:text-nafra-accent transition-colors" />
               </div>
               <div className="flex-1">
-                <p className="text-sm font-medium text-gray-600 group-hover:text-alquid-blue">Haz clic para cargar</p>
-                <p className="text-xs text-gray-400">{accept}</p>
+                <p className="text-sm font-medium text-nafra-text-dim group-hover:text-nafra-accent">Haz clic para cargar</p>
+                <p className="text-xs text-nafra-text-muted">{accept}</p>
               </div>
             </>
           )}
         </div>
       </div>
-      {error && <p className="text-xs text-red-500 mt-1.5 flex items-center gap-1 font-medium"><AlertCircle size={12}/> {error}</p>}
+      {error && <p className="text-xs text-nafra-danger mt-1.5 flex items-center gap-1 font-medium"><AlertCircle size={12}/> {error}</p>}
     </div>
   );
 };

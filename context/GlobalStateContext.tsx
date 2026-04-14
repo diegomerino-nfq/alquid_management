@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useState, ReactNode, useEffect } from 'react';
 import { ReportDefinition, RepositoryData, RepositoryFile } from '../types';
+import { DATABASE_CONFIG, getDatabaseConfig, getAvailableGeographies, isAthenaConfig, isBigQueryConfig, AthenaDatabaseConfig, BigQueryDatabaseConfig, DatabaseConfigMap } from '../config/databaseConfig';
 import axios from 'axios';
 
 // Define state structure for each page
@@ -51,6 +52,13 @@ interface GlobalState {
   setUser: (user: User | null) => void;
   logout: () => void;
 
+  // Database Configuration
+  databaseConfig: DatabaseConfigMap;
+  getDatabaseConfig: (geography: string, environment: 'pre' | 'pro') => AthenaDatabaseConfig | BigQueryDatabaseConfig | null;
+  getAvailableGeographies: () => string[];
+  isAthenaConfig: (config: AthenaDatabaseConfig | BigQueryDatabaseConfig) => config is AthenaDatabaseConfig;
+  isBigQueryConfig: (config: AthenaDatabaseConfig | BigQueryDatabaseConfig) => config is BigQueryDatabaseConfig;
+
   // User Activity Logs
   userLogs: LogEntry[];
   addLog: (module: LogEntry['module'], action: string, details: string, type?: LogEntry['type']) => void;
@@ -84,7 +92,7 @@ interface GlobalState {
 
   // Repository State
   repositoryData: RepositoryData;
-  repositorySummary: { region: string, env: string, count: number }[];
+  repositorySummary: { client: string, geography: string, env: string, count: number }[];
   fetchRepositoryFiles: (region: string, env: string) => Promise<void>;
   fetchRepositorySummary: () => Promise<void>;
   addRepositoryFile: (region: string, env: string, content: any, fileName: string, comment?: string) => Promise<any>;
@@ -168,7 +176,7 @@ export const GlobalStateProvider: React.FC<{ children: ReactNode }> = ({ childre
 
   // --- REPOSITORY STATE ---
   const [repositoryData, setRepositoryDataState] = useState<RepositoryData>({});
-  const [repositorySummary, setRepositorySummary] = useState<{ region: string, env: string, count: number }[]>([]);
+  const [repositorySummary, setRepositorySummary] = useState<{ client: string, geography: string, env: string, count: number }[]>([]);
 
   const fetchRepositorySummary = async () => {
     try {
@@ -272,6 +280,13 @@ export const GlobalStateProvider: React.FC<{ children: ReactNode }> = ({ childre
   return (
     <GlobalStateContext.Provider value={{
       user, setUser,
+      
+      databaseConfig: DATABASE_CONFIG,
+      getDatabaseConfig,
+      getAvailableGeographies,
+      isAthenaConfig,
+      isBigQueryConfig,
+
       userLogs, addLog, clearLogs,
 
       downloadReports, downloadConfig, downloadRegion, downloadEnv, downloadLoadId,

@@ -1,7 +1,6 @@
 import React, { useState, useMemo, useRef, useEffect } from 'react';
-import { Play, Settings, Database, CheckSquare, Square, Filter, CheckCircle2, XCircle, Search, X, AlertTriangle, FileWarning, Download, ShieldAlert, FileCode } from 'lucide-react';
+import { Play, Settings, Database, CheckSquare, Square, Filter, CheckCircle2, XCircle, Search, X, AlertTriangle, FileWarning, Download, ShieldAlert, FileCode, ChevronDown } from 'lucide-react';
 import axios from 'axios';
-import FileInput from '../components/FileInput';
 import PageHeader from '../components/PageHeader';
 import { QueryDefinition, EXPECTED_DATABASES, ReportDefinition } from '../types';
 import { prepareFinalSql } from '../utils/sqlFormatter';
@@ -19,19 +18,43 @@ const ReportDownloader: React.FC = () => {
     downloadRegion, setDownloadRegion,
     downloadEnv, setDownloadEnv,
     downloadLoadId, setDownloadLoadId,
-    addLog, addRepositoryFile // Adding logger and repo sync
+    addLog, addRepositoryFile, // Adding logger and repo sync
+    databaseConfig, getDatabaseConfig, getAvailableGeographies // DB Config
   } = useGlobalState();
 
   const [selectedQueries, setSelectedQueries] = useState<Set<string>>(new Set());
 
-  // Sorted options
-  const regions = ["Argentina", "Colombia", "España", "New York", "Perú", "Suiza"].sort();
+  // Sorted options from context
+  const regions = getAvailableGeographies().map((g: string) => g.charAt(0).toUpperCase() + g.slice(1)).sort();
   const environments = ["PRE", "PRO"].sort();
 
   const [isProcessing, setIsProcessing] = useState(false);
   const [progress, setProgress] = useState(0);
   const [logs, setLogs] = useState<string[]>([]);
   // Directory is selected at download time via showDirectoryPicker()
+
+  // Auto-load database config when region/env changes
+  useEffect(() => {
+    if (downloadRegion && downloadEnv) {
+      const normalizedRegion = downloadRegion.toLowerCase().replace(/\s+/g, '_');
+      const normalizedEnv = downloadEnv.toLowerCase();
+      
+      const dbConfig = getDatabaseConfig(normalizedRegion, normalizedEnv as 'pre' | 'pro');
+      if (dbConfig) {
+        // Create a config object that mimics the structure expected by server.ts
+        const configObj: Record<string, any> = {
+          [normalizedRegion]: {
+            [normalizedEnv]: dbConfig
+          }
+        };
+        setDownloadConfig(configObj, `config_${normalizedRegion}_${normalizedEnv}.auto`);
+        addLog('DESCARGA', 'CONFIG_CARGADA', `Configuración cargada automáticamente para ${downloadRegion}/${downloadEnv}`, 'SUCCESS');
+      } else {
+        addLog('DESCARGA', 'ERROR_CONFIG', `No se pudo cargar configuración para ${downloadRegion}/${downloadEnv}`, 'ERROR');
+        clearDownloadConfig();
+      }
+    }
+  }, [downloadRegion, downloadEnv, getDatabaseConfig, setDownloadConfig, clearDownloadConfig, addLog]);
 
   // Validation Error Modal State
   const [validationError, setValidationError] = useState<{
@@ -155,6 +178,11 @@ const ReportDownloader: React.FC = () => {
     }
   };
 
+  const handleRemoveConfig = () => {
+    clearDownloadConfig();
+    addLog('DESCARGA', 'CONFIG_ELIMINADA', 'Archivo de configuración eliminado', 'INFO');
+  };
+
   const cancelDownload = () => {
     abortControllerRef.current = true;
     addLog('DESCARGA', 'CANCELAR_SOLICITADO', 'Cancelando proceso...', 'WARNING');
@@ -191,11 +219,6 @@ const ReportDownloader: React.FC = () => {
     clearDownloadReports();
     setSelectedQueries(new Set());
     setFilters({});
-  };
-
-  const handleRemoveConfig = () => {
-    addLog('DESCARGA', 'ELIMINAR_ARCHIVO', `Archivo de config eliminado`, 'INFO');
-    clearDownloadConfig();
   };
 
   const toggleQuery = (id: string) => {
@@ -522,14 +545,14 @@ const ReportDownloader: React.FC = () => {
     const currentFilters = filters[columnKey] || new Set();
 
     return (
-      <div ref={filterDropdownRef} className="absolute top-full left-0 mt-2 w-64 bg-white rounded-xl shadow-2xl border border-gray-200 z-50 flex flex-col overflow-hidden animate-fade-in">
-        <div className="p-3 border-b border-gray-100 bg-gray-50/50">
-          <div className="flex items-center gap-2 bg-white border border-gray-200 rounded-lg px-2 py-1.5 mb-2 focus-within:ring-2 focus-within:ring-alquid-blue/20 transition-all">
+      <div ref={filterDropdownRef} className="absolute top-full left-0 mt-2 w-64 bg-nafra-card rounded-xl shadow-2xl border border-nafra-border z-50 flex flex-col overflow-hidden animate-fade-in">
+        <div className="p-3 border-b border-nafra-border bg-nafra-surface/80">
+          <div className="flex items-center gap-2 bg-nafra-card border border-nafra-border rounded-lg px-2 py-1.5 mb-2 focus-within:ring-2 focus-within:ring-alquid-blue/20 transition-all">
             <Search size={14} className="text-gray-400" />
             <input
               type="text"
               placeholder="Buscar..."
-              className="w-full text-xs outline-none text-gray-700 bg-transparent"
+              className="w-full text-xs outline-none text-nafra-text bg-transparent placeholder-nafra-text-muted"
               value={filterSearch}
               onChange={(e) => setFilterSearch(e.target.value)}
               autoFocus
@@ -543,7 +566,7 @@ const ReportDownloader: React.FC = () => {
         </div>
         <div className="max-h-60 overflow-y-auto p-2 space-y-1 custom-scrollbar">
           {filteredValues.map(val => (
-            <label key={val} className="flex items-center gap-2 px-2 py-1.5 hover:bg-gray-50 rounded cursor-pointer text-xs text-gray-700 select-none">
+            <label key={val} className="flex items-center gap-2 px-2 py-1.5 hover:bg-nafra-surface rounded cursor-pointer text-xs text-nafra-text select-none">
               <input
                 type="checkbox"
                 checked={currentFilters.has(val)}
@@ -553,7 +576,7 @@ const ReportDownloader: React.FC = () => {
               <span className="truncate">{val || <i>(Vacío)</i>}</span>
             </label>
           ))}
-          {filteredValues.length === 0 && <div className="text-center py-4 text-gray-400 text-xs">No hay resultados</div>}
+          {filteredValues.length === 0 && <div className="text-center py-4 text-nafra-text-muted text-xs">No hay resultados</div>}
         </div>
       </div>
     );
@@ -562,7 +585,7 @@ const ReportDownloader: React.FC = () => {
   const TableHeader: React.FC<{ label: string, columnKey: string, width?: string }> = ({ label, columnKey, width }) => {
     const isActive = filters[columnKey]?.size > 0;
     return (
-      <th className={`py-3 px-4 text-xs font-bold text-gray-500 uppercase tracking-wider border-b border-gray-200 relative group select-none ${width}`}>
+      <th className={`py-3 px-4 text-xs font-bold text-nafra-text-muted uppercase tracking-wider border-b border-nafra-border relative group select-none ${width}`}>
         <div className="flex items-center gap-2">
           <span>{label}</span>
           <button
@@ -575,7 +598,7 @@ const ReportDownloader: React.FC = () => {
                 setFilterSearch("");
               }
             }}
-            className={`p-1 rounded transition-colors ${isActive ? 'bg-alquid-blue text-white' : 'text-gray-300 hover:text-gray-600 hover:bg-gray-100'}`}
+            className={`p-1 rounded transition-colors ${isActive ? 'bg-alquid-blue text-white' : 'text-nafra-text-muted hover:text-nafra-text hover:bg-nafra-card-hover'}`}
           >
             <Filter size={14} fill={isActive ? "currentColor" : "none"} />
           </button>
@@ -818,32 +841,29 @@ const ReportDownloader: React.FC = () => {
         onSelect={handleSelectRepoFile}
       />
 
-      <div className="flex flex-1 gap-6 h-full relative overflow-hidden mt-6">
+      <div className="flex flex-1 gap-6 h-full relative overflow-hidden mt-6 text-nafra-text">
 
         {/* Fixed Sidebar Configuration */}
-        <div
-          className="bg-white border border-alquid-gray40 border-opacity-40 shadow-lg rounded-xl flex flex-col z-10 w-80"
-        >
+        <div className="bg-nafra-card border border-nafra-border shadow-premium rounded-xl flex flex-col z-10 w-80">
           <div className="p-5 space-y-6 overflow-y-auto flex-1 custom-scrollbar">
 
             {/* Files - Moved to Top */}
             <div>
-              <h4 className="text-sm font-bold text-gray-800 mb-3 flex items-center gap-2">
-                <Database size={16} /> Archivos de Configuración
+              <h4 className="text-sm font-semibold text-nafra-text mb-3 flex items-center gap-2">
+                <ChevronDown size={16} className="text-nafra-accent" /> Archivos de Configuración
               </h4>
-              <div className="flex flex-col gap-3 mb-4">
+              <div className="flex flex-col gap-2 mb-4">
                 <button
-                  onClick={() => document.getElementById('download-json-file-input')?.click()
-                  }
-                  className="w-full py-3 bg-alquid-navy hover:bg-blue-900 text-white rounded-xl font-bold flex items-center justify-center gap-2 shadow-sm whitespace-nowrap transition-transform hover:-translate-y-0.5"
+                  onClick={() => document.getElementById('download-json-file-input')?.click()}
+                  className="w-full py-2.5 px-4 bg-nafra-surface hover:bg-nafra-card-hover text-nafra-text text-sm font-medium text-left rounded-lg transition border border-nafra-border"
                 >
-                  <Download size={18} /> Cargar desde local
+                  Cargar desde local
                 </button>
                 <button
                   onClick={() => setIsRepoExplorerOpen(true)}
-                  className="w-full py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold flex items-center justify-center gap-2 shadow-sm whitespace-nowrap transition-transform hover:-translate-y-0.5"
+                  className="w-full py-2.5 px-4 bg-nafra-surface hover:bg-nafra-card-hover text-nafra-text text-sm font-medium text-left rounded-lg transition border border-nafra-border"
                 >
-                  <FileCode size={18} /> Cargar desde repositorio
+                  Cargar desde repositorio
                 </button>
                 <input
                   id="download-json-file-input"
@@ -860,66 +880,58 @@ const ReportDownloader: React.FC = () => {
                   }}
                 />
               </div>
-              <FileInput
-                label="Accesos (JSON)"
-                accept=".json"
-                onFileLoaded={handleConfigLoaded}
-                onRemove={handleRemoveConfig}
-                initialFileName={downloadConfig.fileName}
-                required
-              />
             </div>
 
-            <hr className="border-gray-100" />
+            <hr className="border-nafra-border" />
 
             {/* Environment Settings */}
             <div className="space-y-4">
               <div>
-                <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">Región</label>
+                <label className="block text-xs font-semibold text-nafra-text-muted uppercase tracking-wider mb-2">Región</label>
                 <div className="relative">
                   <select
                     value={downloadRegion}
                     onChange={(e) => setDownloadRegion(e.target.value)}
-                    className={`w-full appearance-none bg-white border border-gray-300 rounded-lg py-3 px-4 leading-tight focus:outline-none focus:ring-2 focus:ring-alquid-navy focus:border-transparent font-medium shadow-sm transition-all cursor-pointer hover:border-gray-400 ${downloadRegion === "" ? "text-gray-500" : "text-gray-900"}`}
+                    className={`w-full appearance-none bg-nafra-surface border border-nafra-border rounded-lg py-3 px-4 leading-tight focus:outline-none focus:ring-2 focus:ring-nafra-accent/30 focus:border-nafra-accent font-medium shadow-sm transition-all cursor-pointer hover:border-nafra-border-light ${downloadRegion === "" ? "text-nafra-text-muted" : "text-nafra-text"}`}
                   >
                     <option value="" disabled>Seleccionar región</option>
                     {regions.map(r => (
-                      <option key={r} value={r} className="text-gray-900">{r}</option>
+                      <option key={r} value={r} className="text-nafra-text bg-nafra-surface">{r}</option>
                     ))}
                   </select>
-                  <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-2 text-gray-700">
+                  <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-2 text-nafra-text-dim">
                     <svg className="fill-current h-4 w-4" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20"><path d="M9.293 12.95l.707.707L15.657 8l-1.414-1.414L10 10.828 5.757 6.586 4.343 8z" /></svg>
                   </div>
                 </div>
               </div>
 
               <div>
-                <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">Entorno</label>
+                <label className="block text-xs font-semibold text-nafra-text-muted uppercase tracking-wider mb-2">Entorno</label>
                 <div className="relative">
                   <select
                     value={downloadEnv}
                     onChange={(e) => setDownloadEnv(e.target.value)}
-                    className={`w-full appearance-none bg-white border border-gray-300 rounded-lg py-3 px-4 leading-tight focus:outline-none focus:ring-2 focus:ring-alquid-navy focus:border-transparent font-medium shadow-sm transition-all cursor-pointer hover:border-gray-400 ${downloadEnv === "" ? "text-gray-500" : "text-gray-900"}`}
+                    className={`w-full appearance-none bg-nafra-surface border border-nafra-border rounded-lg py-3 px-4 leading-tight focus:outline-none focus:ring-2 focus:ring-nafra-accent/30 focus:border-nafra-accent font-medium shadow-sm transition-all cursor-pointer hover:border-nafra-border-light ${downloadEnv === "" ? "text-nafra-text-muted" : "text-nafra-text"}`}
                   >
                     <option value="" disabled>Seleccionar entorno</option>
                     {environments.map(e => (
-                      <option key={e} value={e} className="text-gray-900">{e}</option>
+                      <option key={e} value={e} className="text-nafra-text bg-nafra-surface">{e}</option>
                     ))}
                   </select>
-                  <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-2 text-gray-700">
+                  <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-2 text-nafra-text-dim">
                     <svg className="fill-current h-4 w-4" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20"><path d="M9.293 12.95l.707.707L15.657 8l-1.414-1.414L10 10.828 5.757 6.586 4.343 8z" /></svg>
                   </div>
                 </div>
               </div>
 
               <div>
-                <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">Load ID <span className="text-red-500">*</span></label>
+                <label className="block text-xs font-semibold text-nafra-text-muted uppercase tracking-wider mb-2">Load ID <span className="text-nafra-danger">*</span></label>
                 <input
                   type="text"
                   value={downloadLoadId}
                   onChange={(e) => setDownloadLoadId(e.target.value)}
                   placeholder="Introducir Load ID"
-                  className="w-full bg-white text-gray-900 border border-gray-300 rounded-lg py-3 px-4 leading-tight focus:outline-none focus:ring-2 focus:ring-alquid-navy focus:border-transparent font-medium shadow-sm placeholder-gray-400"
+                  className="w-full bg-nafra-surface text-nafra-text border border-nafra-border rounded-lg py-3 px-4 leading-tight focus:outline-none focus:ring-2 focus:ring-nafra-accent/30 focus:border-nafra-accent font-medium shadow-sm placeholder-nafra-text-muted"
                 />
               </div>
             </div>
@@ -928,31 +940,23 @@ const ReportDownloader: React.FC = () => {
         </div>
 
         {/* Main Content Area */}
-        <div className="flex-1 flex flex-col h-full overflow-hidden bg-white rounded-xl shadow-sm border border-alquid-gray40 border-opacity-40">
+        <div className="flex-1 flex flex-col h-full overflow-hidden bg-nafra-card rounded-xl shadow-premium border border-nafra-border">
 
           {/* Toolbar */}
-          <div className="p-4 border-b border-alquid-gray40 border-opacity-40 flex justify-between items-center bg-alquid-gray10 rounded-t-xl flex-shrink-0 h-[72px]">
+          <div className="p-4 border-b border-nafra-border flex justify-between items-center bg-nafra-surface rounded-t-xl flex-shrink-0 h-[72px]">
             <div className="flex items-center gap-3">
               <div className="flex items-center gap-2">
-                <Filter size={18} className="text-gray-400" />
-                <span className="font-bold text-gray-700">Queries ({selectedQueries.size} seleccionadas)</span>
-                {Object.keys(filters).length > 0 && <span className="text-xs text-alquid-blue font-bold bg-blue-50 px-2 py-0.5 rounded-full border border-blue-100">Filtros Activos</span>}
+                <Filter size={18} className="text-nafra-text-dim" />
+                <span className="font-semibold text-nafra-text">Queries ({selectedQueries.size} seleccionadas)</span>
+                {Object.keys(filters).length > 0 && <span className="text-xs text-nafra-accent font-semibold bg-nafra-accent/10 px-2 py-0.5 rounded-full border border-nafra-accent/25">Filtros Activos</span>}
               </div>
             </div>
 
-            <button
-              onClick={toggleAll}
-              className="flex items-center gap-2 text-sm font-medium text-alquid-navy hover:bg-white px-3 py-1.5 rounded-lg transition-colors border border-transparent hover:border-gray-200"
-            >
-              {(filteredData.length > 0 && filteredData.every(item => selectedQueries.has(item.id)))
-                ? <><CheckSquare size={16} /> Deseleccionar Visibles</>
-                : <><Square size={16} /> Seleccionar Visibles</>
-              }
-            </button>
+
           </div>
 
           {/* Query Table */}
-          <div className="flex-1 overflow-auto bg-alquid-gray25">
+          <div className="flex-1 overflow-auto bg-nafra-bg/40">
             {flatData.length === 0 ? (
               <div className="h-full flex flex-col items-center justify-center text-gray-400 p-8 text-center animate-fade-in">
                 <div className="w-20 h-20 bg-gray-50 rounded-full flex items-center justify-center mb-6 shadow-inner">
@@ -967,18 +971,23 @@ const ReportDownloader: React.FC = () => {
               <table className="w-full text-left border-collapse relative">
                 <thead className="bg-alquid-gray10 sticky top-0 z-20 shadow-sm">
                   <tr>
-                    <th className="py-3 px-4 w-12 text-center border-b border-gray-200">
-                      <Square size={16} className="text-gray-400 mx-auto" />
+                    <th className="py-3 px-4 w-12 text-center border-b border-nafra-border">
+                      <button onClick={toggleAll} className="flex items-center justify-center w-full hover:opacity-70 transition-opacity">
+                        {(filteredData.length > 0 && filteredData.every(item => selectedQueries.has(item.id)))
+                          ? <CheckSquare size={16} className="text-nafra-accent" />
+                          : <Square size={16} className="text-nafra-text-muted" />
+                        }
+                      </button>
                     </th>
                     <TableHeader label="Reporte" columnKey="report" />
                     <TableHeader label="Carpeta" columnKey="folder" />
                     <TableHeader label="Informe" columnKey="filenameOnly" />
                     <TableHeader label="Base de datos" columnKey="database" />
                     <TableHeader label="Tabla" columnKey="table" />
-                    <th className="py-3 px-4 text-xs font-bold text-gray-500 uppercase tracking-wider border-b border-gray-200 w-64">Validación</th>
+                    <th className="py-3 px-4 text-xs font-bold text-nafra-text-muted uppercase tracking-wider border-b border-nafra-border w-64">Validación</th>
                   </tr>
                 </thead>
-                <tbody className="bg-white divide-y divide-gray-100">
+                <tbody className="bg-nafra-card divide-y divide-nafra-border">
                   {filteredData.map((item, idx) => {
                     const isSelected = selectedQueries.has(item.id);
                     const validation = validateQuery(item.query);
@@ -988,8 +997,8 @@ const ReportDownloader: React.FC = () => {
                         key={item.id}
                         onClick={() => toggleQuery(item.id)}
                         className={`
-                          group transition-colors cursor-pointer hover:bg-blue-50/50
-                          ${isSelected ? 'bg-blue-50/30' : ''}
+                          group transition-colors cursor-pointer hover:bg-nafra-card-hover
+                          ${isSelected ? 'bg-nafra-surface' : ''}
                         `}
                       >
                         <td className="py-3 px-4 text-center">
@@ -998,23 +1007,23 @@ const ReportDownloader: React.FC = () => {
                               type="checkbox"
                               checked={isSelected}
                               onChange={() => toggleQuery(item.id)}
-                              className="w-4 h-4 text-alquid-navy bg-white border-gray-300 rounded focus:ring-alquid-navy"
+                              className="w-4 h-4 text-alquid-blue bg-nafra-surface border-nafra-border rounded focus:ring-alquid-blue"
                             />
                           </div>
                         </td>
-                        <td className="py-3 px-4 text-sm font-bold text-gray-700">
+                        <td className="py-3 px-4 text-sm font-bold text-nafra-text">
                           {item.report}
                         </td>
-                        <td className="py-3 px-4 text-sm text-gray-500">
-                          {item.folder || <span className="text-gray-300 italic">-</span>}
+                        <td className="py-3 px-4 text-sm text-nafra-text-dim">
+                          {item.folder || <span className="text-nafra-text-muted italic">-</span>}
                         </td>
-                        <td className="py-3 px-4 text-sm font-semibold text-gray-800 group-hover:text-alquid-navy transition-colors">
+                        <td className="py-3 px-4 text-sm font-semibold text-nafra-text group-hover:text-alquid-blue transition-colors">
                           {item.filenameOnly}
                         </td>
-                        <td className="py-3 px-4 text-sm text-gray-600 font-medium">
+                        <td className="py-3 px-4 text-sm text-nafra-text-dim font-medium">
                           {item.query.database}
                         </td>
-                        <td className="py-3 px-4 text-sm text-gray-600 font-mono">
+                        <td className="py-3 px-4 text-sm text-nafra-text-dim font-mono">
                           {item.query.table}
                         </td>
                         <td className="py-3 px-4 text-sm">
@@ -1034,7 +1043,7 @@ const ReportDownloader: React.FC = () => {
                   })}
                   {filteredData.length === 0 && (
                     <tr>
-                      <td colSpan={7} className="text-center py-8 text-gray-400 italic">
+                      <td colSpan={7} className="text-center py-8 text-nafra-text-muted italic">
                         No hay resultados para los filtros seleccionados
                       </td>
                     </tr>
@@ -1045,14 +1054,14 @@ const ReportDownloader: React.FC = () => {
           </div>
 
           {/* Action Footer */}
-          <div className="p-4 border-t border-gray-200 bg-white z-10 flex-shrink-0 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)]">
+          <div className="p-4 border-t border-nafra-border bg-nafra-surface z-10 flex-shrink-0 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.3)]">
             {isProcessing && (
               <div className="mb-3">
-                <div className="flex justify-between text-xs font-semibold text-gray-600 mb-1">
+                <div className="flex justify-between text-xs font-semibold text-nafra-text-dim mb-1">
                   <span>Procesando descarga...</span>
                   <span>{progress}%</span>
                 </div>
-                <div className="w-full bg-gray-100 rounded-full h-2 overflow-hidden">
+                <div className="w-full bg-nafra-border rounded-full h-2 overflow-hidden">
                   <div className="bg-gradient-to-r from-alquid-navy to-alquid-blue h-2 rounded-full transition-all duration-300" style={{ width: `${progress}%` }}></div>
                 </div>
               </div>
@@ -1064,7 +1073,7 @@ const ReportDownloader: React.FC = () => {
                 disabled={isProcessing || !downloadConfig.data || selectedQueries.size === 0}
                 className={`flex-[2] py-4 rounded-xl font-medium text-white shadow-lg flex justify-center items-center gap-3 transition-all transform active:scale-[0.99]
                   ${isProcessing || !downloadConfig.data || selectedQueries.size === 0
-                    ? 'bg-gray-300 cursor-not-allowed shadow-none'
+                    ? 'bg-nafra-border text-nafra-text-muted cursor-not-allowed shadow-none'
                     : 'bg-alquid-navy hover:bg-opacity-90 hover:shadow-xl hover:-translate-y-0.5'
                   }
                 `}

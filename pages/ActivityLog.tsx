@@ -57,7 +57,7 @@ const ActivityLog: React.FC = () => {
       />
 
       {/* Action Log Console Container */}
-      <div className="flex-1 mt-6 bg-white border border-gray-200 rounded-xl shadow-sm flex flex-col overflow-hidden">
+      <div className="flex-1 mt-6 bg-nafra-card border border-nafra-border rounded-xl shadow-premium flex flex-col overflow-hidden">
 
         {/* Console Header */}
         <div className="bg-gray-900 border-b border-gray-800 px-4 py-3 flex justify-between items-center text-gray-300">
@@ -81,7 +81,7 @@ const ActivityLog: React.FC = () => {
         </div>
 
         {/* Console Body */}
-        <div className="flex-1 overflow-y-auto p-0 scroll-smooth bg-white">
+        <div className="flex-1 overflow-y-auto p-0 scroll-smooth bg-gray-900">
           {userLogs.length === 0 ? (
             <div className="h-full flex flex-col items-center justify-center text-gray-400 opacity-60">
               <Activity size={48} className="mb-4 text-gray-300" />
@@ -90,48 +90,48 @@ const ActivityLog: React.FC = () => {
             </div>
           ) : (
             <table className="w-full text-left border-collapse">
-              <thead className="bg-gray-50 sticky top-0 z-10 shadow-sm">
+              <thead className="bg-gray-800 sticky top-0 z-10 shadow-sm">
                 <tr>
-                  <th className="px-6 py-3 text-xs font-bold text-gray-500 uppercase tracking-wider w-32">Hora</th>
-                  <th className="px-6 py-3 text-xs font-bold text-gray-500 uppercase tracking-wider w-44">Usuario</th>
-                  <th className="px-6 py-3 text-xs font-bold text-gray-500 uppercase tracking-wider w-32">Módulo</th>
-                  <th className="px-6 py-3 text-xs font-bold text-gray-500 uppercase tracking-wider w-40">Acción</th>
-                  <th className="px-6 py-3 text-xs font-bold text-gray-500 uppercase tracking-wider">Detalle</th>
-                  <th className="px-6 py-3 text-xs font-bold text-gray-500 uppercase tracking-wider w-24 text-center">Estado</th>
+                  <th className="px-6 py-3 text-xs font-bold text-gray-400 uppercase tracking-wider w-32">Hora</th>
+                  <th className="px-6 py-3 text-xs font-bold text-gray-400 uppercase tracking-wider w-44">Usuario</th>
+                  <th className="px-6 py-3 text-xs font-bold text-gray-400 uppercase tracking-wider w-32">Módulo</th>
+                  <th className="px-6 py-3 text-xs font-bold text-gray-400 uppercase tracking-wider w-40">Acción</th>
+                  <th className="px-6 py-3 text-xs font-bold text-gray-400 uppercase tracking-wider">Detalle</th>
+                  <th className="px-6 py-3 text-xs font-bold text-gray-400 uppercase tracking-wider w-24 text-center">Estado</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-gray-100">
+              <tbody className="divide-y divide-gray-700">
                 {visibleLogs.map((log, index) => (
-                  <tr key={log.id} ref={index === 0 ? topLogRef : null} className="hover:bg-blue-50/50 transition-colors group animate-fade-in">
+                  <tr key={log.id} ref={index === 0 ? topLogRef : null} className="hover:bg-gray-800/80 transition-colors group animate-fade-in">
                     <td className="px-6 py-3.5 whitespace-nowrap align-top">
-                      <div className="flex items-center gap-2 text-gray-500 font-mono text-xs">
+                      <div className="flex items-center gap-2 text-gray-400 font-mono text-xs">
                         <Clock size={12} className="text-gray-300 group-hover:text-alquid-blue transition-colors" />
                         {log.timestamp}
                       </div>
                     </td>
                     <td className="px-6 py-3.5 whitespace-nowrap align-top">
                       <div className="flex items-center gap-2">
-                        <div className="w-6 h-6 rounded-full bg-alquid-navy/10 flex items-center justify-center text-[10px] font-bold text-alquid-navy uppercase">
+                        <div className="w-6 h-6 rounded-full bg-alquid-blue/20 flex items-center justify-center text-[10px] font-bold text-alquid-blue uppercase">
                           {(log.user || 'S').charAt(0)}
                         </div>
-                        <span className="text-xs text-gray-600 font-medium truncate max-w-[140px]" title={log.user || 'Sistema'}>
+                        <span className="text-xs text-gray-300 font-medium truncate max-w-[140px]" title={log.user || 'Sistema'}>
                           {log.user || 'Sistema'}
                         </span>
                       </div>
                     </td>
                     <td className="px-6 py-3.5 whitespace-nowrap align-top">
-                      <span className="flex items-center gap-2 text-xs font-bold text-gray-700 bg-gray-100 px-2 py-1 rounded border border-gray-200">
+                      <span className="flex items-center gap-2 text-xs font-bold text-gray-300 bg-gray-700 px-2 py-1 rounded border border-gray-600">
                         {getModuleIcon(log.module)}
                         {log.module}
                       </span>
                     </td>
                     <td className="px-6 py-3.5 whitespace-nowrap align-top">
-                      <span className="text-xs font-bold text-gray-800 tracking-tight">
+                      <span className="text-xs font-bold text-gray-200 tracking-tight">
                         {log.action}
                       </span>
                     </td>
                     <td className="px-6 py-3.5 align-top">
-                      <p className="text-sm text-gray-600 font-mono leading-relaxed break-words whitespace-pre-wrap">
+                      <p className="text-sm text-gray-400 font-mono leading-relaxed break-words whitespace-pre-wrap">
                         {log.details}
                       </p>
                     </td>
@@ -149,7 +149,7 @@ const ActivityLog: React.FC = () => {
         </div>
 
         {/* Console Footer */}
-        <div className="bg-gray-50 border-t border-gray-200 px-4 py-2 flex flex-col md:flex-row justify-between items-center text-xs text-gray-400 gap-2">
+        <div className="bg-gray-800 border-t border-gray-700 px-4 py-2 flex flex-col md:flex-row justify-between items-center text-xs text-gray-400 gap-2">
           <div className="flex items-center gap-2">
             <span className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></span>
             <span>Monitor Activo</span>
@@ -158,16 +158,16 @@ const ActivityLog: React.FC = () => {
             <div>Mostrando {Math.min(userLogs.length, (currentPage - 1) * pageSize + 1)}-{Math.min(userLogs.length, currentPage * pageSize)} de {userLogs.length}</div>
 
             <div className="flex items-center gap-2">
-              <label className="text-xs text-gray-500">Eventos por página</label>
-              <select value={pageSize} onChange={(e) => setPageSize(Number(e.target.value))} className="p-1 rounded border text-sm">
+              <label className="text-xs text-gray-400">Eventos por página</label>
+              <select value={pageSize} onChange={(e) => setPageSize(Number(e.target.value))} className="p-1 rounded border border-gray-600 bg-gray-700 text-gray-300 text-sm">
                 <option value={20}>20</option>
                 <option value={50}>50</option>
               </select>
             </div>
 
             <div className="flex items-center gap-2">
-              <button onClick={() => setCurrentPage(1)} disabled={currentPage === 1} className="px-2 py-1 bg-white border rounded text-xs">Primera</button>
-              <button onClick={() => setCurrentPage(p => Math.max(1, p - 1))} disabled={currentPage === 1} className="px-2 py-1 bg-white border rounded text-xs">Anterior</button>
+              <button onClick={() => setCurrentPage(1)} disabled={currentPage === 1} className="px-2 py-1 bg-gray-700 border border-gray-600 rounded text-xs text-gray-300 disabled:opacity-50">Primera</button>
+              <button onClick={() => setCurrentPage(p => Math.max(1, p - 1))} disabled={currentPage === 1} className="px-2 py-1 bg-gray-700 border border-gray-600 rounded text-xs text-gray-300 disabled:opacity-50">Anterior</button>
 
               {/* Page number buttons (windowed) */}
               <div className="flex items-center gap-1">
@@ -181,25 +181,25 @@ const ActivityLog: React.FC = () => {
                   return (
                     <>
                       {start > 1 && (
-                        <button onClick={() => setCurrentPage(1)} className="px-2 py-1 bg-white border rounded text-xs">1</button>
+                        <button onClick={() => setCurrentPage(1)} className="px-2 py-1 bg-gray-700 border border-gray-600 rounded text-xs text-gray-300">1</button>
                       )}
                       {start > 2 && <span className="px-1">...</span>}
                       {pages.map(p => (
-                        <button key={p} onClick={() => setCurrentPage(p)} className={`px-2 py-1 border rounded text-xs ${p === currentPage ? 'bg-alquid-navy text-white' : 'bg-white'}`}>
+                        <button key={p} onClick={() => setCurrentPage(p)} className={`px-2 py-1 border rounded text-xs ${p === currentPage ? 'bg-alquid-blue border-alquid-blue text-white' : 'bg-gray-700 border-gray-600 text-gray-300'}`}>
                           {p}
                         </button>
                       ))}
                       {end < totalPages - 1 && <span className="px-1">...</span>}
                       {end < totalPages && (
-                        <button onClick={() => setCurrentPage(totalPages)} className="px-2 py-1 bg-white border rounded text-xs">{totalPages}</button>
+                        <button onClick={() => setCurrentPage(totalPages)} className="px-2 py-1 bg-gray-700 border border-gray-600 rounded text-xs text-gray-300">{totalPages}</button>
                       )}
                     </>
                   );
                 })()}
               </div>
 
-              <button onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))} disabled={currentPage === totalPages} className="px-2 py-1 bg-white border rounded text-xs">Siguiente</button>
-              <button onClick={() => setCurrentPage(totalPages)} disabled={currentPage === totalPages} className="px-2 py-1 bg-white border rounded text-xs">Última</button>
+              <button onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))} disabled={currentPage === totalPages} className="px-2 py-1 bg-gray-700 border border-gray-600 rounded text-xs text-gray-300 disabled:opacity-50">Siguiente</button>
+              <button onClick={() => setCurrentPage(totalPages)} disabled={currentPage === totalPages} className="px-2 py-1 bg-gray-700 border border-gray-600 rounded text-xs text-gray-300 disabled:opacity-50">Última</button>
             </div>
           </div>
         </div>
