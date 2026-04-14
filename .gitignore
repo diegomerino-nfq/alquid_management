@@ -33,3 +33,7 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Config files with secrets
+config_db.json
+config/databaseConfig.ts
