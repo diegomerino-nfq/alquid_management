@@ -1,47 +1,29 @@
 import express from 'express';
-import { createServer as createViteServer } from 'vite';
-import path from 'path';
-import { fileURLToPath } from 'url';
-import { createApp } from './createApp.js';
+import { OAuth2Client } from 'google-auth-library';
+import { queries } from './database.js';
 import dotenv from 'dotenv';
 
 dotenv.config();
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
+export async function createApp() {
+  const app = express();
+  app.use(express.json({ limit: '50mb' }));
+  app.use(express.urlencoded({ limit: '50mb', extended: true }));
 
-async function startServer() {
-  const app = await createApp();
-  const PORT = Number(process.env.PORT) || 5173;
+  const googleClient = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
 
-  if (process.env.NODE_ENV !== 'production') {
-    const vite = await createViteServer({
-      server: {
-        middlewareMode: true,
-        hmr: { port: 24679 },
-      },
-      appType: 'spa',
-    });
-    app.use(vite.middlewares);
-  } else {
-    app.use(express.static(path.resolve(__dirname, 'dist')));
-    app.get('*', (_req, res) => {
-      res.sendFile(path.resolve(__dirname, 'dist', 'index.html'));
-    });
-  }
-
-  app.listen(PORT, '0.0.0.0', () => {
-    console.log(`Server running on http://localhost:${PORT}`);
-  });
-}
-
-startServer();
-
-
+  // --- Google OAuth Routes ---
+  app.post('/api/auth/google/verify', async (req, res) => {
+    const { token } = req.body;
+    if (!token) {
+      res.status(400).json({ error: 'Missing token' });
+      return;
+    }
+    try {
+      const clientId = process.env.GOOGLE_CLIENT_ID?.trim();
+      let payload: any;
       try {
-        const ticket = await googleClient.verifyIdToken({
-          idToken: token,
-          audience: clientId,
-        });
+        const ticket = await googleClient.verifyIdToken({ idToken: token, audience: clientId });
         payload = ticket.getPayload();
       } catch (verifyError: any) {
         console.warn('Google verification error, trying manual decode for @nfq.es domain check:', verifyError.message);
@@ -50,27 +32,21 @@ startServer();
           payload = JSON.parse(Buffer.from(parts[1], 'base64').toString());
         }
       }
-
       if (!payload || !payload.email) {
         throw new Error('Cuerpo del token inválido');
       }
-
       const email = payload.email.toLowerCase();
       const domain = email.split('@')[1];
-
       if (domain !== 'nfq.es') {
         res.status(403).json({ error: 'Solo se permiten correos @nfq.es' });
         return;
       }
-
-      let user = queries.getUserByEmail.get(email) as any;
-
+      let user = await queries.getUserByEmail(email) as any;
       if (!user) {
         console.log(`Auto-registrando usuario de nfq.es: ${email}`);
-        queries.addUser.run(email, 'user');
+        await queries.addUser(email, 'user');
         user = { email, role: 'user' };
       }
-
       res.json({ email: user.email, role: user.role });
     } catch (error: any) {
       console.error('Google Auth Error:', error.message);
@@ -79,29 +55,28 @@ startServer();
   });
 
   // --- Activity Log Endpoints ---
-
-  app.get('/api/logs', (req, res) => {
+  app.get('/api/logs', async (_req, res) => {
     try {
-      const logs = queries.getLogs.all();
+      const logs = await queries.getLogs();
       res.json(logs);
     } catch (error: any) {
       res.status(500).json({ error: error.message });
     }
   });
 
-  app.post('/api/logs', (req, res) => {
+  app.post('/api/logs', async (req, res) => {
     const { user, module, action, details, type } = req.body;
     try {
-      queries.addLog.run(user || 'Sistema', module, action, details, type);
+      await queries.addLog(user || 'Sistema', module, action, details, type);
       res.status(204).end();
     } catch (error: any) {
       res.status(500).json({ error: error.message });
     }
   });
 
-  app.delete('/api/logs', (req, res) => {
+  app.delete('/api/logs', async (_req, res) => {
     try {
-      queries.clearLogs.run();
+      await queries.clearLogs();
       res.status(204).end();
     } catch (error: any) {
       res.status(500).json({ error: error.message });
@@ -109,26 +84,24 @@ startServer();
   });
 
   // --- User Management (Admin Only) ---
-
-  app.get('/api/admin/users', (req, res) => {
-    // In a real app, verify admin role from a session or token
-    res.json(queries.getUsers.all());
+  app.get('/api/admin/users', async (_req, res) => {
+    res.json(await queries.getUsers());
   });
 
-  app.post('/api/admin/users', (req, res) => {
+  app.post('/api/admin/users', async (req, res) => {
     const { email, role } = req.body;
     try {
-      queries.addUser.run(email, role || 'user');
+      await queries.addUser(email, role || 'user');
       res.status(201).end();
     } catch (error: any) {
       res.status(500).json({ error: error.message });
     }
   });
 
-  app.delete('/api/admin/users/:email', (req, res) => {
+  app.delete('/api/admin/users/:email', async (req, res) => {
     const { email } = req.params;
     try {
-      queries.removeUser.run(email);
+      await queries.removeUser(email);
       res.status(204).end();
     } catch (error: any) {
       res.status(500).json({ error: error.message });
@@ -136,9 +109,7 @@ startServer();
   });
 
   // --- Database Integration (Athena & BigQuery) ---
-
-  // Temporary diagnostic endpoint
-  app.get('/api/debug-auth', (req, res) => {
+  app.get('/api/debug-auth', (_req, res) => {
     const mask = (s: string) => s ? `${s.substring(0, 4)}...${s.substring(s.length - 2)}` : 'MISSING';
     res.json({
       env: {
@@ -162,8 +133,6 @@ startServer();
     try {
       let resultData: any[] = [];
 
-      // --- SMART KEY LOOKUP ---
-      // This helper matches keys regardless of accents, spaces or casing
       const normalize = (s: string) => s
         .normalize("NFD")
         .replace(/[\u0300-\u036f]/g, "")
@@ -171,7 +140,6 @@ startServer();
         .replace(/\s+/g, '_')
         .replace(/[^a-z0-9_]/g, '');
 
-      // Common environment mappings
       const envMap: Record<string, string> = {
         'preproduccion': 'pre',
         'produccion': 'pro',
@@ -183,12 +151,8 @@ startServer();
       const findKeyInsensitive = (obj: any, target: string) => {
         if (!obj || typeof obj !== 'object') return null;
         const normalizedTarget = normalize(target);
-
-        // Exact normalized match
         let match = Object.keys(obj).find(k => normalize(k) === normalizedTarget);
         if (match) return match;
-
-        // Map match (e.g. preproduccion -> pre)
         const mappedTarget = envMap[normalizedTarget];
         if (mappedTarget) {
           match = Object.keys(obj).find(k => normalize(k) === mappedTarget);
@@ -198,8 +162,6 @@ startServer();
 
       const regionKey = findKeyInsensitive(config, region);
       const countryConfig = regionKey ? config[regionKey] : {};
-
-
       const envKey = findKeyInsensitive(countryConfig, env);
       const targetConfig = envKey ? countryConfig[envKey] : {};
 
@@ -210,8 +172,6 @@ startServer();
         throw new Error(`Configuración no encontrada para ${region}/${env}. ${available}`);
       }
 
-      // --- SMART DB TYPE DETECTION ---
-      // Distinguish between BigQuery and Athena based on DB name or target config content
       const configIsGCP = targetConfig.type === 'service_account' ||
         targetConfig.project_id ||
         targetConfig.client_email ||
@@ -219,12 +179,10 @@ startServer();
         targetConfig.accesos;
 
       const dbIsBQ = query.database.toLowerCase().includes('bq') || query.database.toLowerCase().includes('bigquery');
-
       const dbType = (dbIsBQ || configIsGCP) ? 'bigquery' : 'athena';
 
       console.log(`[AUTH] Region: ${region}, Env: ${env}, DB: ${query.database}, Detected Type: ${dbType}`);
 
-      // --- FLEXIBLE CREDENTIAL EXTRACTION ---
       const getVal = (paths: string[]) => {
         for (const p of paths) {
           const parts = p.split('.');
@@ -243,17 +201,13 @@ startServer();
         return '';
       };
 
-      // --- UNIFIED SQL PREPARATION ENGINE ---
       const prepareSql = (rawSql: string, database: string, table: string, schema?: string) => {
         let sql = rawSql.replace(/%s\.%s/g, `${schema || database}.${table}`);
-
-        // 1. Parameters injection
         if (query.parameters) {
           Object.entries(query.parameters).forEach(([k, v]: [string, any]) => {
             const valRaw = v.value;
             const type = v.type;
             let valFinal = '';
-
             if (type === 'LIST') {
               try {
                 let list = [];
@@ -274,8 +228,6 @@ startServer();
             sql = sql.split(`:${k}`).join(valFinal);
           });
         }
-
-        // 2. load_id injection
         sql = sql.replace(/':load_id'/g, ":load_id").replace(/":load_id"/g, ":load_id");
         if (loadId && loadId.toString().trim()) {
           const lId = loadId.toString().trim();
@@ -287,34 +239,24 @@ startServer();
 
       if (dbType === 'bigquery') {
         const { BigQuery } = await import('@google-cloud/bigquery');
-
         const projectId = getVal(['project_id', 'projectId', 'project']);
-        // Extract credentials from various possible locations
         let credentials = targetConfig.credentials ||
           targetConfig.accesos ||
           (targetConfig.type === 'service_account' ? targetConfig : undefined);
-
-        // If not found yet, try nested lookup
         if (!credentials) {
           const credsKey = findKeyInsensitive(targetConfig, 'credentials') || findKeyInsensitive(targetConfig, 'accesos');
           if (credsKey) credentials = targetConfig[credsKey];
         }
-
         console.log(`[GCP] BigQuery Init. Project: ${projectId || 'default'}. Creds present: ${!!credentials}`);
-
-        // Diagnostic: If it's a service account, log keys (sanitized)
         if (credentials && credentials.client_email) {
           console.log(`[GCP] SA Email: ${credentials.client_email}`);
         }
-
         const bqClient = new BigQuery({
           projectId: projectId || config.projectId || process.env.GOOGLE_PROJECT_ID,
           credentials
         });
-
         const finalSql = prepareSql(query.sql, query.database, query.table, query.schema);
         console.log(`[GCP] SQL Prepared: ${finalSql.substring(0, 100)}...`);
-
         const [rows] = await bqClient.query({ query: finalSql });
         resultData = rows;
       } else {
@@ -341,13 +283,9 @@ startServer();
         (global as any).lastAuthDiag = authDiagStr;
         console.log(`[AWS] ${authDiagStr} | Region=${awsRegion}`);
 
-        const athena = new AthenaClient({
-          region: awsRegion,
-          credentials: finalCredentials
-        });
+        const athena = new AthenaClient({ region: awsRegion, credentials: finalCredentials });
 
         const outputLocation = getVal(['s3_staging', 'outputLocation', 'credentials.s3_staging', 'accesos.s3_staging']) || config.outputLocation || process.env.ATHENA_OUTPUT_LOCATION;
-
         if (!outputLocation) {
           throw new Error(`No se ha definido 's3_staging' para ${region}/${env}.`);
         }
@@ -365,7 +303,6 @@ startServer();
         const { QueryExecutionId } = await athena.send(startCommand);
         console.log(`[ATHENA] ID Ejecución: ${QueryExecutionId}`);
 
-        // Wait for results (simple polling for demo/tooling purposes)
         let status = 'RUNNING';
         while (status === 'RUNNING' || status === 'QUEUED') {
           await new Promise(r => setTimeout(r, 1000));
@@ -379,75 +316,55 @@ startServer();
 
         const resultsCommand = new GetQueryResultsCommand({ QueryExecutionId });
         const { ResultSet } = await athena.send(resultsCommand);
-
-        // Map ResultSet to JSON
         if (ResultSet?.Rows) {
           const headers = ResultSet.Rows[0].Data?.map(d => d.VarCharValue || '') || [];
           resultData = ResultSet.Rows.slice(1).map(row => {
             const obj: any = {};
-            row.Data?.forEach((d, i) => {
-              obj[headers[i]] = d.VarCharValue || '';
-            });
+            row.Data?.forEach((d, i) => { obj[headers[i]] = d.VarCharValue || ''; });
             return obj;
           });
         }
       }
 
       res.json(resultData);
-
-      // Log success
-        queries.addLog.run('Sistema', 'DESCARGA', 'EJECUCION_QUERY', `Query ${query.filename} ejecutada con éxito en ${dbType}`, 'SUCCESS');
+      queries.addLog('Sistema', 'DESCARGA', 'EJECUCION_QUERY', `Query ${query.filename} ejecutada con éxito en ${dbType}`, 'SUCCESS').catch(console.error);
 
     } catch (error: any) {
       console.error('Download error:', error.message);
       let errorMsg = error.message;
-
       if (error.$metadata) {
-        // AWS Specific error enrichment
         errorMsg = `AWS Error: ${error.name || 'Unknown'} - ${error.message}`;
       } else if (error.errors) {
-        // GCP Specific error enrichment
         errorMsg = `GCP Error: ${error.errors[0]?.message || error.message}`;
       }
-
-      // Add a small hint about the credentials being used to help debug
       const authHint = (global as any).lastAuthDiag || 'No diagnostic info';
-
-      queries.addLog.run('Sistema', 'DESCARGA', 'ERROR_QUERY', `Fallo en ${query.filename}: ${errorMsg}`, 'ERROR');
-      res.status(500).json({
-        error: errorMsg,
-        authDiag: authHint,
-        details: error.stack || ''
-      });
+      queries.addLog('Sistema', 'DESCARGA', 'ERROR_QUERY', `Fallo en ${query.filename}: ${errorMsg}`, 'ERROR').catch(console.error);
+      res.status(500).json({ error: errorMsg, authDiag: authHint, details: error.stack || '' });
     }
   });
 
   // --- Repository Endpoints ---
-
-  app.get('/api/repository/summary', (req, res) => {
+  app.get('/api/repository/summary', async (_req, res) => {
     try {
-      const summary = queries.getRepoSummary.all() || [];
+      const summary = await queries.getRepoSummary() || [];
       console.log('[REPO] Summary Query Result:', JSON.stringify(summary));
       res.json(Array.isArray(summary) ? summary : []);
     } catch (error: any) {
       console.error('[REPO] Summary error:', error);
-      res.json([]); // Return empty array instead of error to prevent frontend crash
+      res.json([]);
     }
   });
 
-  app.delete('/api/repository/:id', (req, res) => {
+  app.delete('/api/repository/:id', async (req, res) => {
     const { id } = req.params;
     try {
-      // Check existence first to provide clearer response
-      const exists = queries.getRepoFileById.get(id);
+      const exists = await queries.getRepoFileById(id);
       if (!exists) {
         console.warn(`[REPO] Delete requested for non-existent id: ${id}`);
         res.status(404).json({ error: 'File not found' });
         return;
       }
-      queries.deleteRepoFile.run(id);
-      // Note: logging here previously triggered a DB parameter error in some environments.
-      // To avoid breaking deletion UX, skip inserting an activity_log for now.
+      await queries.deleteRepoFile(id);
       res.status(204).end();
     } catch (error: any) {
       console.error('[REPO] Error deleting file:', error);
@@ -455,23 +372,22 @@ startServer();
     }
   });
 
-  app.get('/api/repository/:client/:geography/:env', (req, res) => {
+  app.get('/api/repository/:client/:geography/:env', async (req, res) => {
     const { client, geography, env } = req.params;
     const geographyValue = geography === 'null' ? null : geography;
     try {
-      const files = queries.getRepoFiles.all(client, geographyValue, env) as any[];
-      // Parse JSON content and handle dates
-      const parsedFiles = files.map(f => {
-        // SQLite CURRENT_TIMESTAMP is UTC 'YYYY-MM-DD HH:MM:SS'
-        // We append 'Z' to make it a valid UTC string for JS parsing
-        const utcDate = f.uploaded_at.replace(' ', 'T') + 'Z';
+      const files = await queries.getRepoFiles(client, geographyValue, env);
+      const parsedFiles = files.map((f: any) => {
+        const uploadedAt = typeof f.uploaded_at === 'string' && f.uploaded_at.includes('T')
+          ? f.uploaded_at
+          : (f.uploaded_at || '').replace(' ', 'T') + 'Z';
         return {
           ...f,
           fileName: f.filename,
-          uploadedAt: utcDate,
+          uploadedAt,
           uploadedBy: f.uploaded_by,
           comment: f.comment,
-          content: JSON.parse(f.content)
+          content: typeof f.content === 'string' ? JSON.parse(f.content) : f.content
         };
       });
       res.json(parsedFiles);
@@ -488,23 +404,14 @@ startServer();
     console.log(`[REPO] Comentario: ${comment || 'N/A'}`);
 
     try {
-      // 1. Get latest version by (client, geography, env) — filename is stored as-is
-      const row = queries.getLatestVersion.get(client, geographyValue, env) as any;
+      const row = await queries.getLatestVersion(client, geographyValue, env);
       const nextVersion = (row?.maxV !== null && row?.maxV !== undefined) ? row.maxV + 1 : 0;
       const id = `${client}_${geography || 'general'}_${env}_${filename}_v${nextVersion}`;
 
-      // 2. Persistent storage (DB for metadata/content for now)
       try {
-        queries.addRepoFile.run(
-          id,
-          client,
-          geographyValue,
-          env,
-          filename,
-          nextVersion,
-          JSON.stringify(content),
-          uploadedBy || 'Admin User',
-          comment || ''
+        await queries.addRepoFile(
+          id, client, geographyValue, env, filename, nextVersion,
+          JSON.stringify(content), uploadedBy || 'Admin User', comment || ''
         );
         console.log(`[REPO] Guardado en DB con ID: ${id}`);
       } catch (dbError: any) {
@@ -512,13 +419,11 @@ startServer();
         throw new Error(`Database Error: ${dbError.message}`);
       }
 
-      // 3. Optional Cloud Backup (S3/GCS)
+      // Optional Cloud Backup (S3/GCS)
       try {
         if (process.env.AWS_S3_BUCKET) {
           const { S3Client, PutObjectCommand } = await import('@aws-sdk/client-s3');
-          const s3 = new S3Client({
-            region: process.env.AWS_REGION || 'eu-west-1',
-          });
+          const s3 = new S3Client({ region: process.env.AWS_REGION || 'eu-west-1' });
           await s3.send(new PutObjectCommand({
             Bucket: process.env.AWS_S3_BUCKET,
             Key: `${client}/${geography || 'general'}/${env}/${filename}_v${nextVersion}.json`,
@@ -538,16 +443,17 @@ startServer();
         await bucket.file(`${client}/${geography || 'general'}/${env}/${filename}_v${nextVersion}.json`).save(JSON.stringify(content, null, 2));
       }
 
-      // After insert, fetch the updated list for this client/geography/env to help debugging and immediate UI sync
       try {
-        const files = queries.getRepoFiles.all(client, geographyValue, env) as any[];
-        const parsedFiles = files.map(f => ({
+        const files = await queries.getRepoFiles(client, geographyValue, env);
+        const parsedFiles = files.map((f: any) => ({
           ...f,
           fileName: f.filename,
-          uploadedAt: f.uploaded_at.replace(' ', 'T') + 'Z',
+          uploadedAt: typeof f.uploaded_at === 'string' && f.uploaded_at.includes('T')
+            ? f.uploaded_at
+            : (f.uploaded_at || '').replace(' ', 'T') + 'Z',
           uploadedBy: f.uploaded_by,
           comment: f.comment,
-          content: JSON.parse(f.content)
+          content: typeof f.content === 'string' ? JSON.parse(f.content) : f.content
         }));
         console.log('[REPO] Post-insert files count:', parsedFiles.length);
         res.status(201).json({ id, version: nextVersion, files: parsedFiles });
@@ -556,7 +462,7 @@ startServer();
         res.status(201).json({ id, version: nextVersion });
       }
 
-      queries.addLog.run('Sistema', 'REPOSITORIO', 'SUBIDA_EXITOSA', `Archivo v${nextVersion} guardado: ${filename} en ${client} ${geography || 'general'} ${env}`, 'SUCCESS');
+      queries.addLog('Sistema', 'REPOSITORIO', 'SUBIDA_EXITOSA', `Archivo v${nextVersion} guardado: ${filename} en ${client} ${geography || 'general'} ${env}`, 'SUCCESS').catch(console.error);
     } catch (error: any) {
       console.error('Repository upload error:', error.message);
       res.status(500).json({ error: error.message });
@@ -564,16 +470,15 @@ startServer();
   });
 
   // --- Template Endpoints ---
-
-  app.get('/api/templates', (req, res) => {
+  app.get('/api/templates', async (req, res) => {
     const { client, geography } = req.query;
     try {
       let templates;
       if (client) {
         const geoValue = geography === 'null' || !geography ? null : geography as string;
-        templates = queries.getTemplates.all(client as string, geoValue);
+        templates = await queries.getTemplates(client as string, geoValue);
       } else {
-        templates = queries.getAllTemplates.all();
+        templates = await queries.getAllTemplates();
       }
       res.json(Array.isArray(templates) ? templates : []);
     } catch (error: any) {
@@ -581,7 +486,7 @@ startServer();
     }
   });
 
-  app.post('/api/templates', (req, res) => {
+  app.post('/api/templates', async (req, res) => {
     const { client, geography, name, content, uploadedBy } = req.body;
     if (!client || !name || !content) {
       res.status(400).json({ error: 'client, name, and content are required' });
@@ -591,17 +496,17 @@ startServer();
     const geoSlug = geoValue ? `_${(geoValue as string).replace(/\s+/g, '_')}` : '';
     const id = `tpl_${(client as string).replace(/\s+/g, '_')}${geoSlug}_${Date.now()}`;
     try {
-      queries.addTemplate.run(id, client, geoValue, name, JSON.stringify(content), uploadedBy || 'user');
+      await queries.addTemplate(id, client, geoValue, name, JSON.stringify(content), uploadedBy || 'user');
       res.status(201).json({ id, name, client, geography: geoValue });
     } catch (error: any) {
       res.status(500).json({ error: error.message });
     }
   });
 
-  app.delete('/api/templates/:id', (req, res) => {
+  app.delete('/api/templates/:id', async (req, res) => {
     const { id } = req.params;
     try {
-      queries.deleteTemplate.run(id);
+      await queries.deleteTemplate(id);
       res.status(204).end();
     } catch (error: any) {
       res.status(500).json({ error: error.message });
@@ -609,17 +514,16 @@ startServer();
   });
 
   // --- RAG (Retrieval-Augmented Generation) Endpoints ---
-
   app.get('/api/rag/status', async (_req, res) => {
     try {
       const { ragStatus } = await import('./rag.js');
-      res.json({ ...ragStatus(), hasApiKey: !!process.env.GOOGLE_GEMINI_API_KEY });
+      const status = await ragStatus();
+      res.json({ ...status, hasApiKey: !!process.env.GOOGLE_GEMINI_API_KEY });
     } catch (e: any) {
       res.status(500).json({ error: e.message });
     }
   });
 
-  // Index all repository files — may take seconds to minutes depending on repo size
   app.post('/api/rag/index', async (_req, res) => {
     if (!process.env.GOOGLE_GEMINI_API_KEY) {
       res.status(400).json({ error: 'GOOGLE_GEMINI_API_KEY no está configurada en .env' });
@@ -628,7 +532,7 @@ startServer();
     try {
       const { indexRepositoryFiles } = await import('./rag.js');
       const result = await indexRepositoryFiles();
-      queries.addLog.run('Sistema', 'RAG', 'INDEX', `Indexadas ${result.indexed} queries, ${result.errors} errores`, 'INFO');
+      queries.addLog('Sistema', 'RAG', 'INDEX', `Indexadas ${result.indexed} queries, ${result.errors} errores`, 'INFO').catch(console.error);
       res.json(result);
     } catch (e: any) {
       console.error('[RAG] Index error:', e.message);
@@ -636,7 +540,6 @@ startServer();
     }
   });
 
-  // Answer a question using RAG over the indexed repository
   app.post('/api/rag/query', async (req, res) => {
     if (!process.env.GOOGLE_GEMINI_API_KEY) {
       res.status(400).json({ error: 'GOOGLE_GEMINI_API_KEY no está configurada en .env' });
@@ -661,27 +564,5 @@ startServer();
     }
   });
 
-  // --- Vite Middleware (Must be last) ---
-  if (process.env.NODE_ENV !== 'production') {
-    const vite = await createViteServer({
-      server: {
-        middlewareMode: true,
-        hmr: { port: 24679 },
-      },
-      appType: 'spa',
-    });
-    app.use(vite.middlewares);
-  } else {
-    // Serve static files in production
-    app.use(express.static(path.resolve(__dirname, 'dist')));
-    app.get('*', (req, res) => {
-      res.sendFile(path.resolve(__dirname, 'dist', 'index.html'));
-    });
-  }
-
-  app.listen(PORT, '0.0.0.0', () => {
-    console.log(`Server running on http://localhost:${PORT}`);
-  });
+  return app;
 }
-
-startServer();

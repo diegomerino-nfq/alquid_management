@@ -9,39 +9,11 @@
  *   Chat       : gemini-1.5-flash    (rápido, económico, con capa gratuita)
  */
 
-import db from './database.js';
+import supabase from './database.js';
 
-// ─── Schema ───────────────────────────────────────────────────────────────────
-
-db.exec(`
-  CREATE TABLE IF NOT EXISTS rag_chunks (
-    id           TEXT PRIMARY KEY,
-    client       TEXT NOT NULL,
-    geography    TEXT,
-    env          TEXT NOT NULL,
-    report_name  TEXT NOT NULL,
-    filename     TEXT NOT NULL,
-    content_text TEXT NOT NULL,
-    embedding    TEXT NOT NULL,          -- JSON float array (768 dims)
-    indexed_at   DATETIME DEFAULT CURRENT_TIMESTAMP
-  );
-`);
-
-// ─── Prepared statements ─────────────────────────────────────────────────────
-
-const stmtUpsert = db.prepare(`
-  INSERT OR REPLACE INTO rag_chunks
-    (id, client, geography, env, report_name, filename, content_text, embedding, indexed_at)
-  VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
-`);
-
-const stmtAllChunks    = db.prepare('SELECT id, client, geography, env, report_name, filename, content_text, embedding FROM rag_chunks');
-const stmtCount        = db.prepare('SELECT COUNT(*) as count FROM rag_chunks');
-const stmtLastIndexed  = db.prepare('SELECT MAX(indexed_at) as last FROM rag_chunks');
-const stmtAllRepoFiles = db.prepare('SELECT * FROM repository_files');
-const stmtExistingIds  = db.prepare('SELECT id FROM rag_chunks');
-
-// Prepared statements para filtrado por metadatos (se generan dinámicamente abajo)
+// Note: rag_chunks table must be created in Supabase dashboard with columns:
+// id TEXT PK, client TEXT, geography TEXT, env TEXT, report_name TEXT,
+// filename TEXT, content_text TEXT, embedding TEXT, indexed_at TIMESTAMPTZ
 // ─── Metadata extractor ───────────────────────────────────────────────────────
 
 /**
@@ -290,7 +262,8 @@ export interface RagChunkSource {
 export async function indexRepositoryFiles(): Promise<{ indexed: number; errors: number; skipped: number; quotaExhausted: boolean }> {
   const apiKey = process.env.GOOGLE_GEMINI_API_KEY!;
 
-  const files = stmtAllRepoFiles.all() as any[];
+  const { data: filesData } = await supabase.from('repository_files').select('*');
+  const files = filesData || [];
   let indexed = 0, errors = 0;
 
   // ── 1. Recopilar todos los chunks antes de hacer llamadas a la API ──────────
@@ -326,9 +299,8 @@ export async function indexRepositoryFiles(): Promise<{ indexed: number; errors:
   }
 
   // ── 2. Filtrar chunks ya indexados (indexado incremental) ────────────────────
-  const existingIds = new Set(
-    (stmtExistingIds.all() as { id: string }[]).map(r => r.id)
-  );
+  const { data: existingIdsData } = await supabase.from('rag_chunks').select('id');
+  const existingIds = new Set((existingIdsData || []).map((r: any) => r.id));
   const pending = chunks.filter(c => !existingIds.has(c.id));
   const skipped = chunks.length - pending.length;
   console.log(`[RAG] Total chunks: ${chunks.length} | Ya indexados: ${skipped} | Pendientes: ${pending.length}`);
@@ -353,7 +325,12 @@ export async function indexRepositoryFiles(): Promise<{ indexed: number; errors:
       const embeddings = await embedBatch(apiKey, batch.map(c => c.embedText));
       for (let j = 0; j < batch.length; j++) {
         const c = batch[j];
-        stmtUpsert.run(c.id, c.client, c.geography, c.env, c.reportName, c.filename, c.text, JSON.stringify(embeddings[j]));
+        await supabase.from('rag_chunks').upsert({
+          id: c.id, client: c.client, geography: c.geography, env: c.env,
+          report_name: c.reportName, filename: c.filename,
+          content_text: c.text, embedding: JSON.stringify(embeddings[j]),
+          indexed_at: new Date().toISOString()
+        });
         indexed++;
       }
     } catch (e: any) {
@@ -428,33 +405,38 @@ export async function ragQuery(
   const [qEmb] = await embedBatch(apiKey, [questionForEmbedding]);
 
   // 3. Cargar el subconjunto de chunks con los filtros activos
-  const conditions: string[] = [];
-  const params   : any[]     = [];
-  if (filters.geography) { conditions.push("geography = ?"); params.push(filters.geography); }
-  if (filters.env)       { conditions.push("env = ?");       params.push(filters.env); }
-  if (filters.client)    { conditions.push("client = ?");    params.push(filters.client); }
-
-  const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
-  const candidateChunks = db.prepare(
-    `SELECT id, client, geography, env, report_name, filename, content_text, embedding FROM rag_chunks ${whereClause}`
-  ).all(...params) as any[];
+  let chunkQuery = supabase.from('rag_chunks')
+    .select('id, client, geography, env, report_name, filename, content_text, embedding');
+  if (filters.geography) chunkQuery = chunkQuery.eq('geography', filters.geography);
+  if (filters.env)       chunkQuery = chunkQuery.eq('env', filters.env);
+  if (filters.client)    chunkQuery = chunkQuery.eq('client', filters.client);
+  const { data: candidateChunks } = await chunkQuery;
+  const cands = candidateChunks || [];
 
   // Estrategia de fallback:
   // - Si hay suficientes chunks con todos los filtros → usarlos
   // - Si tenemos geografía (directa o heredada) y faltan resultados → relajar env/client pero MANTENER geografía
   // - Solo ir al repo completo si NO hay ninguna geografía conocida
   let chunks: any[];
-  if (candidateChunks.length >= 3) {
-    chunks = candidateChunks;
+  if (cands.length >= 3) {
+    chunks = cands;
   } else if (filters.geography) {
-    // Relajar env/client pero mantener geografía
-    const geoOnlyChunks = db.prepare(
-      'SELECT id, client, geography, env, report_name, filename, content_text, embedding FROM rag_chunks WHERE geography = ?'
-    ).all(filters.geography) as any[];
-    chunks = geoOnlyChunks.length > 0 ? geoOnlyChunks : (stmtAllChunks.all() as any[]);
-    console.log(`[RAG] Fallback parcial: ${geoOnlyChunks.length} chunks con geography=${filters.geography}`);
+    const { data: geoOnlyChunks } = await supabase.from('rag_chunks')
+      .select('id, client, geography, env, report_name, filename, content_text, embedding')
+      .eq('geography', filters.geography);
+    const geo = geoOnlyChunks || [];
+    if (geo.length > 0) {
+      chunks = geo;
+    } else {
+      const { data: allChunks } = await supabase.from('rag_chunks')
+        .select('id, client, geography, env, report_name, filename, content_text, embedding');
+      chunks = allChunks || [];
+    }
+    console.log(`[RAG] Fallback parcial: ${chunks.length} chunks con geography=${filters.geography}`);
   } else {
-    chunks = stmtAllChunks.all() as any[];
+    const { data: allChunks } = await supabase.from('rag_chunks')
+      .select('id, client, geography, env, report_name, filename, content_text, embedding');
+    chunks = allChunks || [];
     console.log(`[RAG] Sin filtros: usando todo el repositorio (${chunks.length} chunks).`);
   }
 
@@ -576,8 +558,11 @@ INSTRUCCIONES DE RESPUESTA
 }
 
 /** Estado actual del índice RAG. */
-export function ragStatus(): { chunksCount: number; lastIndexedAt: string | null } {
-  const { count } = stmtCount.get()        as { count: number };
-  const { last  } = stmtLastIndexed.get()  as { last:  string | null };
-  return { chunksCount: count, lastIndexedAt: last };
+export async function ragStatus(): Promise<{ chunksCount: number; lastIndexedAt: string | null }> {
+  const { count } = (await supabase.from('rag_chunks').select('*', { count: 'exact', head: true })) as any;
+  const { data: lastRow } = await supabase.from('rag_chunks').select('indexed_at').order('indexed_at', { ascending: false }).limit(1);
+  return {
+    chunksCount: count ?? 0,
+    lastIndexedAt: lastRow?.[0]?.indexed_at ?? null
+  };
 }

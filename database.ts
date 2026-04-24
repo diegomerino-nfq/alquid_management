@@ -1,162 +1,113 @@
-import Database from 'better-sqlite3';
-import path from 'path';
-import { fileURLToPath } from 'url';
+import { createClient } from '@supabase/supabase-js';
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const dbPath = path.resolve(__dirname, 'alquid.db');
+const supabase = createClient(
+  process.env.SUPABASE_URL!,
+  process.env.SUPABASE_SERVICE_ROLE_KEY!
+);
 
-const db = new Database(dbPath);
-
-// Initialize tables
-db.exec(`
-  CREATE TABLE IF NOT EXISTS users (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    email TEXT UNIQUE NOT NULL,
-    role TEXT DEFAULT 'user',
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-  );
-
-  CREATE TABLE IF NOT EXISTS activity_logs (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
-    user TEXT,
-    module TEXT,
-    action TEXT,
-    details TEXT,
-    type TEXT
-  );
-
-  CREATE TABLE IF NOT EXISTS repository_files (
-    id TEXT PRIMARY KEY,
-    client TEXT,
-    geography TEXT,
-    env TEXT,
-    filename TEXT,
-    version INTEGER,
-    content TEXT,
-    uploaded_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    uploaded_by TEXT,
-    comment TEXT
-  );
-
-  CREATE TABLE IF NOT EXISTS templates (
-    id TEXT PRIMARY KEY,
-    client TEXT NOT NULL,
-    geography TEXT,
-    name TEXT NOT NULL,
-    content TEXT NOT NULL,
-    uploaded_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    uploaded_by TEXT
-  );
-`);
-
-// --- MIGRATIONS ---
-try {
-  db.exec("ALTER TABLE repository_files ADD COLUMN comment TEXT");
-  console.log("Migration: Added 'comment' column to repository_files");
-} catch (e: any) {
-  if (!e.message.includes('duplicate column name')) {
-    // already exists
-  }
-}
-try {
-  db.exec("ALTER TABLE activity_logs ADD COLUMN user TEXT");
-  console.log("Migration: Added 'user' column to activity_logs");
-} catch (e: any) {
-  if (!e.message.includes('duplicate column name')) {
-    // already exists
-  }
-}
-// Migration: Update repository_files schema from region to client/geography
-try {
-  db.exec("ALTER TABLE repository_files ADD COLUMN client TEXT");
-  db.exec("ALTER TABLE repository_files ADD COLUMN geography TEXT");
-  console.log("Migration: Added 'client' and 'geography' columns to repository_files");
-} catch (e: any) {
-  // already exists or already migrated
-}
-
-// Migration: Renumber versions starting from 0 per (client, geography, env) ordered by upload date
-try {
-  const groups = db.prepare(`
-    SELECT DISTINCT client, geography, env
-    FROM repository_files
-  `).all() as { client: string, geography: string | null, env: string }[];
-
-  const updateVersion = db.prepare('UPDATE repository_files SET version = ? WHERE id = ?');
-  const getOrdered = db.prepare(`
-    SELECT id FROM repository_files
-    WHERE client = ? AND geography IS ? AND env = ?
-    ORDER BY uploaded_at ASC, id ASC
-  `);
-
-  const runMigration = db.transaction(() => {
-    for (const g of groups) {
-      const rows = getOrdered.all(g.client, g.geography, g.env) as { id: string }[];
-      rows.forEach((row, idx) => {
-        updateVersion.run(idx, row.id);
-      });
-    }
-  });
-
-  runMigration();
-  console.log("Migration: Versions renumbered starting from 0 per (client, geography, env)");
-} catch (e: any) {
-  console.error("Migration error (version renumber):", e.message);
-}
-
-// Migration: Add geography column to templates
-try {
-  db.exec("ALTER TABLE templates ADD COLUMN geography TEXT");
-  console.log("Migration: Added 'geography' column to templates");
-} catch (e: any) {
-  // already exists
-}
-
-// Seed initial admin user if not exists
-const adminEmail = 'diego.merino@nfq.es';
-const checkUser = db.prepare('SELECT * FROM users WHERE email = ?');
-const user = checkUser.get(adminEmail);
-
-if (!user) {
-  db.prepare('INSERT INTO users (email, role) VALUES (?, ?)').run(adminEmail, 'admin');
-  console.log(`Seeded admin user: ${adminEmail}`);
-}
-
-export default db;
+export default supabase;
 
 export const queries = {
-  addLog: db.prepare('INSERT INTO activity_logs (user, module, action, details, type) VALUES (?, ?, ?, ?, ?)'),
-  getLogs: db.prepare('SELECT * FROM activity_logs ORDER BY timestamp DESC LIMIT 200'),
-  clearLogs: db.prepare('DELETE FROM activity_logs'),
+  addLog: async (user: string, module: string, action: string, details: string, type: string) => {
+    await supabase.from('activity_logs').insert({ user, module, action, details, type });
+  },
+  getLogs: async () => {
+    const { data } = await supabase.from('activity_logs').select('*').order('timestamp', { ascending: false }).limit(200);
+    return data || [];
+  },
+  clearLogs: async () => {
+    await supabase.from('activity_logs').delete().gte('id', 0);
+  },
 
-  addUser: db.prepare('INSERT INTO users (email, role) VALUES (?, ?)'),
-  removeUser: db.prepare('DELETE FROM users WHERE email = ?'),
-  getUsers: db.prepare('SELECT * FROM users ORDER BY created_at DESC'),
-  getUserByEmail: db.prepare('SELECT * FROM users WHERE email = ?'),
+  addUser: async (email: string, role: string) => {
+    await supabase.from('users').insert({ email, role });
+  },
+  removeUser: async (email: string) => {
+    await supabase.from('users').delete().eq('email', email);
+  },
+  getUsers: async () => {
+    const { data } = await supabase.from('users').select('*').order('created_at', { ascending: false });
+    return data || [];
+  },
+  getUserByEmail: async (email: string) => {
+    const { data } = await supabase.from('users').select('*').eq('email', email).maybeSingle();
+    return data || null;
+  },
 
-  addRepoFile: db.prepare(`
-    INSERT INTO repository_files (id, client, geography, env, filename, version, content, uploaded_by, comment)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `),
-  getRepoFiles: db.prepare('SELECT * FROM repository_files WHERE client = ? AND geography IS ? AND env = ? ORDER BY uploaded_at DESC, version DESC'),
-  getRepoFileById: db.prepare('SELECT id FROM repository_files WHERE id = ?'),
-  getLatestVersion: db.prepare('SELECT MAX(version) as maxV FROM repository_files WHERE client = ? AND geography IS ? AND env = ?'),
-  getRepoSummary: db.prepare(`
-    SELECT
-      client,
-      CASE WHEN geography IS NULL THEN 'general' ELSE geography END as geography,
-      env,
-      COUNT(*) as count
-    FROM repository_files
-    GROUP BY client, geography, env
-    ORDER BY client, geography, env
-  `),
-  deleteRepoFile: db.prepare('DELETE FROM repository_files WHERE id = ?'),
+  addRepoFile: async (id: string, client: string, geography: string | null, env: string, filename: string, version: number, content: string, uploadedBy: string, comment: string) => {
+    const { error } = await supabase.from('repository_files').insert({ id, client, geography, env, filename, version, content, uploaded_by: uploadedBy, comment });
+    if (error) throw new Error(error.message);
+  },
+  getRepoFiles: async (client: string, geography: string | null, env: string) => {
+    let q = supabase.from('repository_files').select('*')
+      .eq('client', client)
+      .eq('env', env)
+      .order('uploaded_at', { ascending: false })
+      .order('version', { ascending: false });
+    if (geography === null) {
+      q = q.is('geography', null);
+    } else {
+      q = q.eq('geography', geography);
+    }
+    const { data } = await q;
+    return data || [];
+  },
+  getRepoFileById: async (id: string) => {
+    const { data } = await supabase.from('repository_files').select('id').eq('id', id).maybeSingle();
+    return data || null;
+  },
+  getLatestVersion: async (client: string, geography: string | null, env: string) => {
+    let q = supabase.from('repository_files').select('version')
+      .eq('client', client)
+      .eq('env', env)
+      .order('version', { ascending: false })
+      .limit(1);
+    if (geography === null) {
+      q = q.is('geography', null);
+    } else {
+      q = q.eq('geography', geography);
+    }
+    const { data } = await q;
+    return { maxV: (data && data.length > 0) ? data[0].version : null };
+  },
+  getRepoSummary: async () => {
+    const { data } = await supabase.from('repository_files').select('client, geography, env');
+    if (!data) return [];
+    const groups: Record<string, any> = {};
+    for (const f of data) {
+      const geo = f.geography || 'general';
+      const key = `${f.client}||${geo}||${f.env}`;
+      if (!groups[key]) groups[key] = { client: f.client, geography: geo, env: f.env, count: 0 };
+      groups[key].count++;
+    }
+    return Object.values(groups);
+  },
+  deleteRepoFile: async (id: string) => {
+    await supabase.from('repository_files').delete().eq('id', id);
+  },
 
-  addTemplate: db.prepare('INSERT INTO templates (id, client, geography, name, content, uploaded_by) VALUES (?, ?, ?, ?, ?, ?)'),
-  getTemplates: db.prepare('SELECT * FROM templates WHERE client = ? AND geography IS ? ORDER BY uploaded_at DESC'),
-  getAllTemplates: db.prepare('SELECT * FROM templates ORDER BY client, geography, uploaded_at DESC'),
-  deleteTemplate: db.prepare('DELETE FROM templates WHERE id = ?'),
-  getTemplateById: db.prepare('SELECT * FROM templates WHERE id = ?'),
+  addTemplate: async (id: string, client: string, geography: string | null, name: string, content: string, uploadedBy: string) => {
+    await supabase.from('templates').insert({ id, client, geography, name, content, uploaded_by: uploadedBy });
+  },
+  getTemplates: async (client: string, geography: string | null) => {
+    let q = supabase.from('templates').select('*').eq('client', client).order('uploaded_at', { ascending: false });
+    if (geography === null) {
+      q = q.is('geography', null);
+    } else {
+      q = q.eq('geography', geography);
+    }
+    const { data } = await q;
+    return data || [];
+  },
+  getAllTemplates: async () => {
+    const { data } = await supabase.from('templates').select('*').order('client').order('uploaded_at', { ascending: false });
+    return data || [];
+  },
+  deleteTemplate: async (id: string) => {
+    await supabase.from('templates').delete().eq('id', id);
+  },
+  getTemplateById: async (id: string) => {
+    const { data } = await supabase.from('templates').select('*').eq('id', id).maybeSingle();
+    return data || null;
+  },
 };
