@@ -1,8 +1,8 @@
 import React, { useState, useMemo, useRef, useEffect } from 'react';
-import { Play, Settings, Database, CheckSquare, Square, Filter, CheckCircle2, XCircle, Search, X, AlertTriangle, FileWarning, Download, ShieldAlert, FileCode, ChevronDown } from 'lucide-react';
+import { Play, Settings, Database, CheckSquare, Square, Filter, CheckCircle2, XCircle, Search, X, AlertTriangle, FileWarning, Download, ShieldAlert, FileCode, ChevronDown, RotateCcw } from 'lucide-react';
 import axios from 'axios';
 import PageHeader from '../components/PageHeader';
-import { QueryDefinition, EXPECTED_DATABASES, ReportDefinition } from '../types';
+import { QueryDefinition, EXPECTED_DATABASES, ReportDefinition, GEO_DISPLAY_MAP, geoDisplayToConfigKey } from '../types';
 import { prepareFinalSql } from '../utils/sqlFormatter';
 import { useGlobalState } from '../context/GlobalStateContext';
 import QueryValidatorModal, { InvalidQuery } from '../components/QueryValidatorModal';
@@ -24,8 +24,8 @@ const ReportDownloader: React.FC = () => {
 
   const [selectedQueries, setSelectedQueries] = useState<Set<string>>(new Set());
 
-  // Sorted options from context
-  const regions = getAvailableGeographies().map((g: string) => g.charAt(0).toUpperCase() + g.slice(1)).sort();
+  // Sorted options from context — map config keys to proper Spanish display names
+  const regions = getAvailableGeographies().map((g: string) => GEO_DISPLAY_MAP[g] ?? (g.charAt(0).toUpperCase() + g.slice(1))).sort();
   const environments = ["PRE", "PRO"].sort();
 
   const [isProcessing, setIsProcessing] = useState(false);
@@ -36,7 +36,7 @@ const ReportDownloader: React.FC = () => {
   // Auto-load database config when region/env changes
   useEffect(() => {
     if (downloadRegion && downloadEnv) {
-      const normalizedRegion = downloadRegion.toLowerCase().replace(/\s+/g, '_');
+      const normalizedRegion = geoDisplayToConfigKey(downloadRegion);
       const normalizedEnv = downloadEnv.toLowerCase();
       
       const dbConfig = getDatabaseConfig(normalizedRegion, normalizedEnv as 'pre' | 'pro');
@@ -221,6 +221,17 @@ const ReportDownloader: React.FC = () => {
     setFilters({});
   };
 
+  const handleReset = () => {
+    clearDownloadReports();
+    clearDownloadConfig();
+    setDownloadRegion('');
+    setDownloadEnv('');
+    setDownloadLoadId('');
+    setSelectedQueries(new Set());
+    setFilters({});
+    addLog('DESCARGA', 'RESET', 'Pantalla reiniciada', 'INFO');
+  };
+
   const toggleQuery = (id: string) => {
     const newSet = new Set(selectedQueries);
     if (newSet.has(id)) newSet.delete(id);
@@ -379,7 +390,7 @@ const ReportDownloader: React.FC = () => {
       const yy = String(d.getFullYear()).slice(-2);
       const mm = String(d.getMonth() + 1).padStart(2, '0');
       const dd = String(d.getDate()).padStart(2, '0');
-      const regionKey = (downloadRegion || 'general').toString().toLowerCase().replace(/\s+/g, '_');
+      const regionKey = downloadRegion ? geoDisplayToConfigKey(downloadRegion) : 'general';
       const envKey = (downloadEnv || 'general').toString().toLowerCase().replace(/\s+/g, '_');
       const folderName = `Informes_${regionKey}_${envKey}_${yy}${mm}${dd}`;
       baseDir = await root.getDirectoryHandle(folderName, { create: true });
@@ -935,6 +946,16 @@ const ReportDownloader: React.FC = () => {
                 />
               </div>
             </div>
+
+            <hr className="border-nafra-border" />
+
+            <button
+              onClick={handleReset}
+              className="w-full flex items-center justify-center gap-2 py-2.5 px-4 bg-nafra-surface hover:bg-red-500/10 text-nafra-text-muted hover:text-red-400 text-sm font-medium rounded-lg transition border border-nafra-border hover:border-red-400/40"
+            >
+              <RotateCcw size={14} />
+              Resetear pantalla
+            </button>
 
           </div>
         </div>

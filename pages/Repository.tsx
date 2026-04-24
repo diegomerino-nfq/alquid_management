@@ -82,6 +82,12 @@ const Repository: React.FC = () => {
             fetchRepositoryFiles(selectedClient, selectedGeography, selectedEnv);
         } else if (selectedClient && !CLIENT_GEOGRAPHIES[selectedClient] && selectedEnv) {
             fetchRepositoryFiles(selectedClient, null, selectedEnv);
+        } else if (selectedClient && CLIENT_GEOGRAPHIES[selectedClient] && selectedGeography && !selectedEnv) {
+            // Pre-fetch both envs so version/date is available on the env cards
+            envs.forEach(env => fetchRepositoryFiles(selectedClient, selectedGeography, env));
+        } else if (selectedClient && !CLIENT_GEOGRAPHIES[selectedClient] && !selectedEnv) {
+            // Pre-fetch both envs for clients without geographies
+            envs.forEach(env => fetchRepositoryFiles(selectedClient, null, env));
         }
     }, [selectedClient, selectedGeography, selectedEnv]);
 

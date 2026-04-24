@@ -29,6 +29,31 @@ export type Environment = "PRE" | "PRO";
 export type Client = "Banca March" | "Bankinter" | "BBVA" | "Pichincha";
 export type Geography = "Luxemburgo" | "Argentina" | "Suiza" | "Perú" | "Colombia" | "Nueva York" | "España";
 
+/**
+ * Maps config_db.json geography keys → proper Spanish display names used in EXPECTED_DATABASES.
+ * e.g. 'peru' → 'Perú', 'new_york' → 'Nueva York'
+ */
+export const GEO_DISPLAY_MAP: Record<string, string> = {
+  'colombia': 'Colombia',
+  'peru': 'Perú',
+  'new_york': 'Nueva York',
+  'argentina': 'Argentina',
+  'espana': 'España',
+  'suiza': 'Suiza',
+  'luxemburgo': 'Luxemburgo',
+};
+
+/**
+ * Converts a display geography name back to a config_db.json key.
+ * e.g. 'Perú' → 'peru', 'Nueva York' → 'nueva_york'
+ */
+export const geoDisplayToConfigKey = (displayName: string): string =>
+  displayName
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/\s+/g, '_');
+
 // Repository Types
 export interface RepositoryFile {
   id: string;

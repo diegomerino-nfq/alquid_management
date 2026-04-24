@@ -522,12 +522,6 @@ const SqlExtractor: React.FC = () => {
                {Object.keys(filters).length > 0 && <span className="text-xs text-alquid-blue font-bold bg-alquid-navy/40 px-2 py-0.5 rounded-full border border-nafra-border">Filtros Activos</span>}
              </div>
              
-             <button 
-               onClick={toggleAll}
-               className="flex items-center gap-2 text-sm font-medium text-nafra-text-dim hover:bg-nafra-card-hover px-3 py-1.5 rounded-lg transition-colors border border-transparent hover:border-nafra-border"
-             >
-               Desmarcar todo
-             </button>
            </div>
 
            {/* Table Content */}
